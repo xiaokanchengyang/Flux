@@ -4,10 +4,12 @@
 //! and compressing files with intelligent compression strategies.
 
 pub mod archive;
+pub mod config;
 pub mod error;
 pub mod metadata;
+pub mod strategy;
 
 pub use error::{Error, Result};
 
 // Re-export commonly used types
-pub use archive::{extract, pack};
+pub use archive::{extract, extract_with_options, inspect, pack, pack_with_strategy, ArchiveEntry, ExtractOptions, PackOptions};

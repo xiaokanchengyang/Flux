@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tracing::info;
+use std::process;
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -76,6 +77,14 @@ enum Commands {
         /// Number of threads to use
         #[arg(long)]
         threads: Option<usize>,
+
+        /// Follow symlinks (pack link targets instead of links)
+        #[arg(long)]
+        follow_symlinks: bool,
+
+        /// Force compression on already compressed files
+        #[arg(long)]
+        force_compress: bool,
     },
 
     /// Inspect archive contents
@@ -123,7 +132,22 @@ fn setup_logging(verbose: bool, quiet: bool) {
         .init();
 }
 
-fn main() -> Result<()> {
+fn main() {
+    let result = run();
+    
+    match result {
+        Ok(_) => process::exit(0),
+        Err(e) => {
+            error!("Error: {}", e);
+            
+            // Map errors to exit codes based on requirements
+            let exit_code = map_error_to_exit_code(&e);
+            process::exit(exit_code);
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
 
     setup_logging(cli.verbose, cli.quiet);
@@ -132,14 +156,22 @@ fn main() -> Result<()> {
         Commands::Extract {
             archive,
             output,
-            overwrite: _,
-            skip: _,
-            rename: _,
-            strip_components: _,
+            overwrite,
+            skip,
+            rename,
+            strip_components,
         } => {
             info!("Extracting archive: {:?}", archive);
             let output_dir = output.unwrap_or_else(|| PathBuf::from("."));
-            flux_lib::extract(&archive, &output_dir)?;
+            
+            let options = flux_lib::archive::ExtractOptions {
+                overwrite,
+                skip,
+                rename,
+                strip_components,
+            };
+            
+            flux_lib::archive::extract_with_options(&archive, &output_dir, options)?;
             info!("Extraction complete");
         }
 
@@ -147,20 +179,73 @@ fn main() -> Result<()> {
             input,
             output,
             format,
-            smart: _,
-            algo: _,
-            level: _,
-            threads: _,
+            smart,
+            algo,
+            level,
+            threads,
+            follow_symlinks,
+            force_compress,
         } => {
             info!("Packing {:?} into {:?}", input, output);
-            flux_lib::pack(&input, &output, format.as_deref())?;
+            
+            let options = flux_lib::archive::PackOptions {
+                smart,
+                algorithm: algo,
+                level,
+                threads,
+                force_compress,
+                follow_symlinks,
+            };
+            
+            flux_lib::archive::pack_with_strategy(&input, &output, format.as_deref(), options)?;
             info!("Packing complete");
         }
 
-        Commands::Inspect { archive, json: _ } => {
+        Commands::Inspect { archive, json } => {
             info!("Inspecting archive: {:?}", archive);
-            // TODO: Implement inspect functionality
-            eprintln!("Inspect functionality not yet implemented");
+            
+            let entries = flux_lib::inspect(&archive)?;
+            
+            if json {
+                // Output as JSON
+                let json_output = serde_json::to_string_pretty(&entries)?;
+                println!("{}", json_output);
+            } else {
+                // Output as human-readable table
+                println!("{:<50} {:>15} {:>15} {:>10} {:>20}", 
+                    "Path", "Size", "Compressed", "Mode", "Modified");
+                println!("{}", "-".repeat(120));
+                
+                for entry in entries {
+                    let mode_str = if let Some(mode) = entry.mode {
+                        format!("{:o}", mode)
+                    } else {
+                        "-".to_string()
+                    };
+                    
+                    let mtime_str = if let Some(mtime) = entry.mtime {
+                        let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(mtime, 0)
+                            .unwrap_or_default();
+                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                    } else {
+                        "-".to_string()
+                    };
+                    
+                    let compressed_str = entry.compressed_size
+                        .map(|s| format!("{}", s))
+                        .unwrap_or_else(|| "-".to_string());
+                    
+                    println!("{:<50} {:>15} {:>15} {:>10} {:>20}",
+                        entry.path.display(),
+                        entry.size,
+                        compressed_str,
+                        mode_str,
+                        mtime_str
+                    );
+                }
+            }
+            
+            info!("Inspection complete");
         }
 
         Commands::Config { show, edit, path } => {
@@ -177,4 +262,31 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Map errors to exit codes according to requirements:
+/// - 0: Success
+/// - 1: General error
+/// - 2: IO error
+/// - 3: Invalid arguments
+/// - 4: Partial failure
+fn map_error_to_exit_code(err: &anyhow::Error) -> i32 {
+    // Check if it's a flux_lib error
+    if let Some(flux_err) = err.downcast_ref::<flux_lib::Error>() {
+        match flux_err {
+            flux_lib::Error::Io(_) => 2,
+            flux_lib::Error::InvalidPath(_) => 3,
+            flux_lib::Error::UnsupportedFormat(_) => 3,
+            flux_lib::Error::Archive(_) => 4,
+            flux_lib::Error::Compression(_) => 4,
+            flux_lib::Error::Config(_) | flux_lib::Error::ConfigError(_) => 1,
+            flux_lib::Error::Other(_) => 1,
+        }
+    } else if err.is::<std::io::Error>() {
+        2
+    } else if err.to_string().contains("argument") || err.to_string().contains("invalid") {
+        3
+    } else {
+        1
+    }
 }

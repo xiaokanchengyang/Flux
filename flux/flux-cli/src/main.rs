@@ -17,6 +17,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     quiet: bool,
 
+    /// Show progress bar
+    #[arg(long, global = true)]
+    progress: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -129,17 +133,18 @@ fn setup_logging(verbose: bool, quiet: bool) {
         .with_target(false)
         .with_thread_ids(false)
         .with_thread_names(false)
+        .with_writer(std::io::stderr)
         .init();
 }
 
 fn main() {
     let result = run();
-    
+
     match result {
         Ok(_) => process::exit(0),
         Err(e) => {
             error!("Error: {}", e);
-            
+
             // Map errors to exit codes based on requirements
             let exit_code = map_error_to_exit_code(&e);
             process::exit(exit_code);
@@ -163,14 +168,14 @@ fn run() -> Result<()> {
         } => {
             info!("Extracting archive: {:?}", archive);
             let output_dir = output.unwrap_or_else(|| PathBuf::from("."));
-            
+
             let options = flux_lib::archive::ExtractOptions {
                 overwrite,
                 skip,
                 rename,
                 strip_components,
             };
-            
+
             flux_lib::archive::extract_with_options(&archive, &output_dir, options)?;
             info!("Extraction complete");
         }
@@ -187,7 +192,7 @@ fn run() -> Result<()> {
             force_compress,
         } => {
             info!("Packing {:?} into {:?}", input, output);
-            
+
             let options = flux_lib::archive::PackOptions {
                 smart,
                 algorithm: algo,
@@ -196,33 +201,35 @@ fn run() -> Result<()> {
                 force_compress,
                 follow_symlinks,
             };
-            
+
             flux_lib::archive::pack_with_strategy(&input, &output, format.as_deref(), options)?;
             info!("Packing complete");
         }
 
         Commands::Inspect { archive, json } => {
             info!("Inspecting archive: {:?}", archive);
-            
+
             let entries = flux_lib::inspect(&archive)?;
-            
+
             if json {
                 // Output as JSON
                 let json_output = serde_json::to_string_pretty(&entries)?;
                 println!("{}", json_output);
             } else {
                 // Output as human-readable table
-                println!("{:<50} {:>15} {:>15} {:>10} {:>20}", 
-                    "Path", "Size", "Compressed", "Mode", "Modified");
+                println!(
+                    "{:<50} {:>15} {:>15} {:>10} {:>20}",
+                    "Path", "Size", "Compressed", "Mode", "Modified"
+                );
                 println!("{}", "-".repeat(120));
-                
+
                 for entry in entries {
                     let mode_str = if let Some(mode) = entry.mode {
                         format!("{:o}", mode)
                     } else {
                         "-".to_string()
                     };
-                    
+
                     let mtime_str = if let Some(mtime) = entry.mtime {
                         let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(mtime, 0)
                             .unwrap_or_default();
@@ -230,12 +237,14 @@ fn run() -> Result<()> {
                     } else {
                         "-".to_string()
                     };
-                    
-                    let compressed_str = entry.compressed_size
+
+                    let compressed_str = entry
+                        .compressed_size
                         .map(|s| format!("{}", s))
                         .unwrap_or_else(|| "-".to_string());
-                    
-                    println!("{:<50} {:>15} {:>15} {:>10} {:>20}",
+
+                    println!(
+                        "{:<50} {:>15} {:>15} {:>10} {:>20}",
                         entry.path.display(),
                         entry.size,
                         compressed_str,
@@ -244,17 +253,57 @@ fn run() -> Result<()> {
                     );
                 }
             }
-            
+
             info!("Inspection complete");
         }
 
         Commands::Config { show, edit, path } => {
+            use flux_lib::config::Config;
+
             if show {
-                eprintln!("Config show not yet implemented");
+                // Show current configuration
+                match Config::load() {
+                    Ok(config) => {
+                        let toml_str = toml::to_string_pretty(&config)?;
+                        println!("{}", toml_str);
+                    }
+                    Err(e) => {
+                        error!("Failed to load configuration: {}", e);
+                        return Err(e.into());
+                    }
+                }
             } else if edit {
-                eprintln!("Config edit not yet implemented");
+                // Open configuration file in editor
+                let config_path = Config::config_path()
+                    .map_err(|e| anyhow::anyhow!("Failed to get config path: {}", e))?;
+
+                // Ensure config exists
+                if !config_path.exists() {
+                    info!("Creating default configuration file...");
+                    Config::default()
+                        .save()
+                        .map_err(|e| anyhow::anyhow!("Failed to save default config: {}", e))?;
+                }
+
+                // Open in default editor
+                let editor = std::env::var("EDITOR").unwrap_or_else(|_| {
+                    if cfg!(windows) {
+                        "notepad".to_string()
+                    } else {
+                        "nano".to_string()
+                    }
+                });
+
+                info!("Opening configuration file in {}", editor);
+                std::process::Command::new(&editor)
+                    .arg(&config_path)
+                    .status()
+                    .map_err(|e| anyhow::anyhow!("Failed to open editor: {}", e))?;
             } else if path {
-                eprintln!("Config path not yet implemented");
+                // Show configuration file path
+                let config_path = Config::config_path()
+                    .map_err(|e| anyhow::anyhow!("Failed to get config path: {}", e))?;
+                println!("{}", config_path.display());
             } else {
                 eprintln!("Please specify --show, --edit, or --path");
             }
@@ -281,6 +330,7 @@ fn map_error_to_exit_code(err: &anyhow::Error) -> i32 {
             flux_lib::Error::Compression(_) => 4,
             flux_lib::Error::Config(_) | flux_lib::Error::ConfigError(_) => 1,
             flux_lib::Error::Other(_) => 1,
+            flux_lib::Error::Zip(_) => 4,
         }
     } else if err.is::<std::io::Error>() {
         2

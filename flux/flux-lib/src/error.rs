@@ -27,6 +27,15 @@ pub enum Error {
 
     #[error("Other error: {0}")]
     Other(String),
+
+    #[error("Zip error: {0}")]
+    Zip(String),
+}
+
+impl From<zip::result::ZipError> for Error {
+    fn from(err: zip::result::ZipError) -> Self {
+        Error::Zip(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

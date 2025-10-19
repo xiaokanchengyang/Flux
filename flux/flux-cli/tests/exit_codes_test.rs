@@ -1,17 +1,17 @@
 //! Integration tests for exit codes
 
 use assert_cmd::Command;
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
 #[test]
 fn test_success_exit_code() {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test.txt");
     let archive = temp_dir.path().join("test.tar");
-    
+
     fs::write(&test_file, "test content").unwrap();
-    
+
     // Pack command should succeed with exit code 0
     Command::cargo_bin("flux")
         .unwrap()
@@ -43,7 +43,7 @@ fn test_invalid_arguments_exit_code() {
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test.txt");
     fs::write(&test_file, "test content").unwrap();
-    
+
     // Invalid compression algorithm
     Command::cargo_bin("flux")
         .unwrap()
@@ -78,16 +78,16 @@ fn test_pack_to_readonly_directory() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = temp_dir.path().join("test.txt");
         fs::write(&test_file, "test content").unwrap();
-        
+
         let readonly_dir = temp_dir.path().join("readonly");
         fs::create_dir(&readonly_dir).unwrap();
-        
+
         // Make directory read-only
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&readonly_dir, fs::Permissions::from_mode(0o444)).unwrap();
-        
+
         let archive = readonly_dir.join("test.tar");
-        
+
         // Should fail with IO error
         Command::cargo_bin("flux")
             .unwrap()
@@ -105,10 +105,10 @@ fn test_pack_to_readonly_directory() {
 fn test_inspect_invalid_archive() {
     let temp_dir = TempDir::new().unwrap();
     let invalid_archive = temp_dir.path().join("invalid.tar");
-    
+
     // Create an invalid archive file
     fs::write(&invalid_archive, "not a valid tar file").unwrap();
-    
+
     // Inspect should fail with IO error code (tar parsing IO error)
     Command::cargo_bin("flux")
         .unwrap()

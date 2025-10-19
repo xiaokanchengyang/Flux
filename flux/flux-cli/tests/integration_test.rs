@@ -126,7 +126,7 @@ fn test_verbose_flag() {
         .env("RUST_LOG", "debug")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Packing"));
+        .stderr(predicate::str::contains("Packing"));
 }
 
 #[test]

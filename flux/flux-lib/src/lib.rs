@@ -7,9 +7,13 @@ pub mod archive;
 pub mod config;
 pub mod error;
 pub mod metadata;
+pub mod progress;
 pub mod strategy;
 
 pub use error::{Error, Result};
 
 // Re-export commonly used types
-pub use archive::{extract, extract_with_options, inspect, pack, pack_with_strategy, ArchiveEntry, ExtractOptions, PackOptions};
+pub use archive::{
+    extract, extract_with_options, inspect, pack, pack_with_strategy, ArchiveEntry, ExtractOptions,
+    PackOptions,
+};

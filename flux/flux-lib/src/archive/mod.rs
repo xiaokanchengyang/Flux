@@ -1,11 +1,12 @@
 //! Archive operations module
 
 pub mod tar;
+pub mod zip;
 
-use crate::{Error, Result};
 use crate::strategy::{Algorithm, CompressionStrategy};
-use std::path::{Path, PathBuf};
+use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Archive entry information
@@ -43,6 +44,7 @@ pub fn pack<P: AsRef<Path>, Q: AsRef<Path>>(
 
     match format {
         "tar" => tar::pack_tar(input, output),
+        "zip" => zip::pack_zip(input, output),
         _ => Err(Error::UnsupportedFormat(format.to_string())),
     }
 }
@@ -57,7 +59,7 @@ pub fn extract<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> Res
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
-    
+
     // Check for double extensions
     let stem = archive.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let double_ext = if stem.ends_with(".tar") {
@@ -74,12 +76,21 @@ pub fn extract<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> Res
         "tar.br" => tar::extract_tar_compressed(archive, output_dir, Algorithm::Brotli),
         _ => match ext {
             "tar" => tar::extract_tar(archive, output_dir),
-            "gz" if stem.ends_with(".tar") => tar::extract_tar_compressed(archive, output_dir, Algorithm::Gzip),
-            "zst" if stem.ends_with(".tar") => tar::extract_tar_compressed(archive, output_dir, Algorithm::Zstd),
-            "xz" if stem.ends_with(".tar") => tar::extract_tar_compressed(archive, output_dir, Algorithm::Xz),
-            "br" if stem.ends_with(".tar") => tar::extract_tar_compressed(archive, output_dir, Algorithm::Brotli),
+            "gz" if stem.ends_with(".tar") => {
+                tar::extract_tar_compressed(archive, output_dir, Algorithm::Gzip)
+            }
+            "zst" if stem.ends_with(".tar") => {
+                tar::extract_tar_compressed(archive, output_dir, Algorithm::Zstd)
+            }
+            "xz" if stem.ends_with(".tar") => {
+                tar::extract_tar_compressed(archive, output_dir, Algorithm::Xz)
+            }
+            "br" if stem.ends_with(".tar") => {
+                tar::extract_tar_compressed(archive, output_dir, Algorithm::Brotli)
+            }
+            "zip" => zip::extract_zip(archive, output_dir),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
-        }
+        },
     }
 }
 
@@ -92,7 +103,7 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
-    
+
     // Check for double extensions
     let stem = archive.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let double_ext = if stem.ends_with(".tar") {
@@ -110,11 +121,16 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
         _ => match ext {
             "tar" => tar::inspect_tar(archive),
             "gz" if stem.ends_with(".tar") => tar::inspect_tar_compressed(archive, Algorithm::Gzip),
-            "zst" if stem.ends_with(".tar") => tar::inspect_tar_compressed(archive, Algorithm::Zstd),
+            "zst" if stem.ends_with(".tar") => {
+                tar::inspect_tar_compressed(archive, Algorithm::Zstd)
+            }
             "xz" if stem.ends_with(".tar") => tar::inspect_tar_compressed(archive, Algorithm::Xz),
-            "br" if stem.ends_with(".tar") => tar::inspect_tar_compressed(archive, Algorithm::Brotli),
+            "br" if stem.ends_with(".tar") => {
+                tar::inspect_tar_compressed(archive, Algorithm::Brotli)
+            }
+            "zip" => zip::inspect_zip(archive),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
-        }
+        },
     }
 }
 
@@ -191,8 +207,8 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
         }
     } else if let Some(algo_str) = &options.algorithm {
         // Use specified algorithm
-        let algorithm = Algorithm::from_str(algo_str)
-            .ok_or_else(|| Error::UnsupportedFormat(format!("Unknown algorithm: {}", algo_str)))?;
+        let algorithm = algo_str.parse::<Algorithm>()
+            .map_err(|_| Error::UnsupportedFormat(format!("Unknown algorithm: {}", algo_str)))?;
         CompressionStrategy {
             algorithm,
             level: options.level.unwrap_or(3),
@@ -214,10 +230,11 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
         fmt.to_string()
     } else {
         // Infer from output filename
-        let ext = output.extension()
+        let ext = output
+            .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or("");
-        
+
         // Check for double extensions
         if let Some(stem) = output.file_stem().and_then(|s| s.to_str()) {
             if stem.ends_with(".tar") {
@@ -235,7 +252,8 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
                     Algorithm::Xz => "tar.xz",
                     Algorithm::Brotli => "tar.br",
                     Algorithm::Store => "tar",
-                }.to_string()
+                }
+                .to_string()
             }
         } else {
             // No clear format, use smart default based on algorithm
@@ -245,17 +263,43 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
                 Algorithm::Xz => "tar.xz",
                 Algorithm::Brotli => "tar.br",
                 Algorithm::Store => "tar",
-            }.to_string()
+            }
+            .to_string()
         }
     };
 
-    // For now, we only support tar-based formats
+    // Support both tar and zip formats
     match format.as_str() {
         "tar" => tar::pack_tar_with_options(input, output, options.follow_symlinks),
-        "tar.gz" | "tgz" => tar::pack_tar_compressed_with_options(input, output, Algorithm::Gzip, strategy.level, options.follow_symlinks),
-        "tar.zst" | "tzst" => tar::pack_tar_compressed_with_options(input, output, Algorithm::Zstd, strategy.level, options.follow_symlinks),
-        "tar.xz" | "txz" => tar::pack_tar_compressed_with_options(input, output, Algorithm::Xz, strategy.level, options.follow_symlinks),
-        "tar.br" => tar::pack_tar_compressed_with_options(input, output, Algorithm::Brotli, strategy.level, options.follow_symlinks),
+        "tar.gz" | "tgz" => tar::pack_tar_compressed_with_options(
+            input,
+            output,
+            Algorithm::Gzip,
+            strategy.level,
+            options.follow_symlinks,
+        ),
+        "tar.zst" | "tzst" => tar::pack_tar_compressed_with_options(
+            input,
+            output,
+            Algorithm::Zstd,
+            strategy.level,
+            options.follow_symlinks,
+        ),
+        "tar.xz" | "txz" => tar::pack_tar_compressed_with_options(
+            input,
+            output,
+            Algorithm::Xz,
+            strategy.level,
+            options.follow_symlinks,
+        ),
+        "tar.br" => tar::pack_tar_compressed_with_options(
+            input,
+            output,
+            Algorithm::Brotli,
+            strategy.level,
+            options.follow_symlinks,
+        ),
+        "zip" => zip::pack_zip_with_options(input, output, options.follow_symlinks),
         _ => Err(Error::UnsupportedFormat(format)),
     }
 }
@@ -274,7 +318,7 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
-    
+
     // Check for double extensions
     let stem = archive.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let double_ext = if stem.ends_with(".tar") {
@@ -285,17 +329,49 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 
     match double_ext.as_str() {
         "tar" => tar::extract_tar_with_options(archive, output_dir, options),
-        "tar.gz" | "tgz" => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Gzip, options),
-        "tar.zst" | "tzst" => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Zstd, options),
-        "tar.xz" | "txz" => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Xz, options),
-        "tar.br" => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Brotli, options),
+        "tar.gz" | "tgz" => {
+            tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Gzip, options)
+        }
+        "tar.zst" | "tzst" => {
+            tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Zstd, options)
+        }
+        "tar.xz" | "txz" => {
+            tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Xz, options)
+        }
+        "tar.br" => tar::extract_tar_compressed_with_options(
+            archive,
+            output_dir,
+            Algorithm::Brotli,
+            options,
+        ),
         _ => match ext {
             "tar" => tar::extract_tar_with_options(archive, output_dir, options),
-            "gz" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Gzip, options),
-            "zst" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Zstd, options),
-            "xz" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Xz, options),
-            "br" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Brotli, options),
+            "gz" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(
+                archive,
+                output_dir,
+                Algorithm::Gzip,
+                options,
+            ),
+            "zst" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(
+                archive,
+                output_dir,
+                Algorithm::Zstd,
+                options,
+            ),
+            "xz" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(
+                archive,
+                output_dir,
+                Algorithm::Xz,
+                options,
+            ),
+            "br" if stem.ends_with(".tar") => tar::extract_tar_compressed_with_options(
+                archive,
+                output_dir,
+                Algorithm::Brotli,
+                options,
+            ),
+            "zip" => zip::extract_zip_with_options(archive, output_dir, options),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
-        }
+        },
     }
 }

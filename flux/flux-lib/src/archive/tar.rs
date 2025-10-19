@@ -4,16 +4,16 @@ use crate::archive::{ArchiveEntry, ExtractOptions};
 use crate::metadata::FileMetadata;
 use crate::strategy::Algorithm;
 use crate::{Error, Result};
+use flate2::write::GzEncoder;
+use flate2::Compression as GzCompression;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tar::{Archive, Builder};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
-use flate2::write::GzEncoder;
-use flate2::Compression as GzCompression;
-use zstd::stream::write::Encoder as ZstdEncoder;
 use xz2::write::XzEncoder;
+use zstd::stream::write::Encoder as ZstdEncoder;
 
 /// Pack files into a tar archive
 pub fn pack_tar<P: AsRef<Path>, Q: AsRef<Path>>(input: P, output: Q) -> Result<()> {
@@ -29,7 +29,10 @@ pub fn pack_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     let input = input.as_ref();
     let output = output.as_ref();
 
-    info!("Packing {:?} into {:?} (follow_symlinks: {})", input, output, follow_symlinks);
+    info!(
+        "Packing {:?} into {:?} (follow_symlinks: {})",
+        input, output, follow_symlinks
+    );
 
     // Create output directory if it doesn't exist
     if let Some(parent) = output.parent() {
@@ -41,7 +44,12 @@ pub fn pack_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 
     if input.is_file() {
         // Pack single file
-        pack_file(&mut builder, input, Path::new(input.file_name().unwrap()), follow_symlinks)?;
+        pack_file(
+            &mut builder,
+            input,
+            Path::new(input.file_name().unwrap()),
+            follow_symlinks,
+        )?;
     } else if input.is_dir() {
         // Pack directory recursively
         pack_directory_with_options(&mut builder, input, follow_symlinks)?;
@@ -68,22 +76,22 @@ fn pack_file<W: Write>(
     debug!("Adding file: {:?} as {:?}", path, archive_path);
 
     let file_metadata = path.symlink_metadata()?;
-    
+
     // Check if it's a symlink
     #[cfg(unix)]
     if file_metadata.file_type().is_symlink() && !follow_symlinks {
         // Pack the symlink itself
         let link_target = fs::read_link(path)?;
         debug!("Adding symlink: {:?} -> {:?}", path, link_target);
-        
+
         let metadata = FileMetadata::from_metadata(&file_metadata)?;
         let mut header = tar::Header::new_ustar();
-        
+
         header.set_entry_type(tar::EntryType::Symlink);
         header.set_path(archive_path)?;
         header.set_link_name(&link_target)?;
         header.set_size(0);
-        
+
         // Set Unix-specific metadata
         #[cfg(unix)]
         {
@@ -97,14 +105,14 @@ fn pack_file<W: Write>(
                 header.set_gid(gid as u64);
             }
         }
-        
+
         // Set timestamps
         if let Some(mtime) = metadata.modified {
             if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
                 header.set_mtime(duration.as_secs());
             }
         }
-        
+
         header.set_cksum();
         builder.append(&header, &mut std::io::empty())?;
         return Ok(());
@@ -147,7 +155,6 @@ fn pack_file<W: Write>(
     Ok(())
 }
 
-
 /// Pack a directory recursively into the tar builder with options
 fn pack_directory_with_options<W: Write>(
     builder: &mut Builder<W>,
@@ -177,7 +184,7 @@ fn pack_directory_with_options<W: Write>(
             .map_err(|_| Error::InvalidPath(format!("Failed to strip prefix from {:?}", path)))?;
 
         let file_type = entry.file_type();
-        
+
         if file_type.is_file() || (file_type.is_symlink() && follow_symlinks) {
             pack_file(builder, path, relative_path, follow_symlinks)?;
         } else if file_type.is_dir() {
@@ -294,7 +301,7 @@ pub fn inspect_tar<P: AsRef<Path>>(archive_path: P) -> Result<Vec<ArchiveEntry>>
         let entry = entry?;
         let header = entry.header();
         let path = entry.path()?;
-        
+
         let archive_entry = ArchiveEntry {
             path: path.to_path_buf(),
             size: header.size()?,
@@ -309,7 +316,7 @@ pub fn inspect_tar<P: AsRef<Path>>(archive_path: P) -> Result<Vec<ArchiveEntry>>
                 None
             },
         };
-        
+
         entries.push(archive_entry);
     }
 
@@ -441,7 +448,10 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     let input = input.as_ref();
     let output = output.as_ref();
 
-    info!("Packing {:?} into {:?} with {:?} compression", input, output, algorithm);
+    info!(
+        "Packing {:?} into {:?} with {:?} compression",
+        input, output, algorithm
+    );
 
     // Create output directory if it doesn't exist
     if let Some(parent) = output.parent() {
@@ -458,9 +468,14 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         Algorithm::Gzip => {
             let encoder = GzEncoder::new(file, GzCompression::new(level));
             let mut builder = Builder::new(encoder);
-            
+
             if input.is_file() {
-                pack_file(&mut builder, input, Path::new(input.file_name().unwrap()), follow_symlinks)?;
+                pack_file(
+                    &mut builder,
+                    input,
+                    Path::new(input.file_name().unwrap()),
+                    follow_symlinks,
+                )?;
             } else if input.is_dir() {
                 pack_directory_with_options(&mut builder, input, follow_symlinks)?;
             } else {
@@ -469,7 +484,7 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                     input
                 )));
             }
-            
+
             let encoder = builder.into_inner()?;
             encoder.finish()?;
             info!("Successfully packed compressed archive: {:?}", output);
@@ -478,9 +493,14 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         Algorithm::Zstd => {
             let encoder = ZstdEncoder::new(file, level as i32)?;
             let mut builder = Builder::new(encoder);
-            
+
             if input.is_file() {
-                pack_file(&mut builder, input, Path::new(input.file_name().unwrap()), follow_symlinks)?;
+                pack_file(
+                    &mut builder,
+                    input,
+                    Path::new(input.file_name().unwrap()),
+                    follow_symlinks,
+                )?;
             } else if input.is_dir() {
                 pack_directory_with_options(&mut builder, input, follow_symlinks)?;
             } else {
@@ -489,7 +509,7 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                     input
                 )));
             }
-            
+
             let encoder = builder.into_inner()?;
             encoder.finish()?;
             info!("Successfully packed compressed archive: {:?}", output);
@@ -498,9 +518,14 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         Algorithm::Xz => {
             let encoder = XzEncoder::new(file, level);
             let mut builder = Builder::new(encoder);
-            
+
             if input.is_file() {
-                pack_file(&mut builder, input, Path::new(input.file_name().unwrap()), follow_symlinks)?;
+                pack_file(
+                    &mut builder,
+                    input,
+                    Path::new(input.file_name().unwrap()),
+                    follow_symlinks,
+                )?;
             } else if input.is_dir() {
                 pack_directory_with_options(&mut builder, input, follow_symlinks)?;
             } else {
@@ -509,7 +534,7 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                     input
                 )));
             }
-            
+
             let encoder = builder.into_inner()?;
             encoder.finish()?;
             info!("Successfully packed compressed archive: {:?}", output);
@@ -518,9 +543,14 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         Algorithm::Brotli => {
             let encoder = brotli::CompressorWriter::new(file, 4096, level, 22);
             let mut builder = Builder::new(encoder);
-            
+
             if input.is_file() {
-                pack_file(&mut builder, input, Path::new(input.file_name().unwrap()), follow_symlinks)?;
+                pack_file(
+                    &mut builder,
+                    input,
+                    Path::new(input.file_name().unwrap()),
+                    follow_symlinks,
+                )?;
             } else if input.is_dir() {
                 pack_directory_with_options(&mut builder, input, follow_symlinks)?;
             } else {
@@ -529,7 +559,7 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                     input
                 )));
             }
-            
+
             builder.finish()?;
             info!("Successfully packed compressed archive: {:?}", output);
             Ok(())
@@ -546,7 +576,10 @@ pub fn extract_tar_compressed<P: AsRef<Path>, Q: AsRef<Path>>(
     let archive_path = archive_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    info!("Extracting compressed {:?} archive {:?} to {:?}", algorithm, archive_path, output_dir);
+    info!(
+        "Extracting compressed {:?} archive {:?} to {:?}",
+        algorithm, archive_path, output_dir
+    );
 
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
@@ -609,9 +642,15 @@ fn extract_archive_entries<R: Read>(archive: &mut Archive<R>, output_dir: &Path)
 }
 
 /// Inspect compressed tar archive contents
-pub fn inspect_tar_compressed<P: AsRef<Path>>(archive_path: P, algorithm: Algorithm) -> Result<Vec<ArchiveEntry>> {
+pub fn inspect_tar_compressed<P: AsRef<Path>>(
+    archive_path: P,
+    algorithm: Algorithm,
+) -> Result<Vec<ArchiveEntry>> {
     let archive_path = archive_path.as_ref();
-    info!("Inspecting compressed {:?} archive: {:?}", algorithm, archive_path);
+    info!(
+        "Inspecting compressed {:?} archive: {:?}",
+        algorithm, archive_path
+    );
 
     let file = File::open(archive_path)?;
     let mut entries = Vec::new();
@@ -649,13 +688,16 @@ pub fn inspect_tar_compressed<P: AsRef<Path>>(archive_path: P, algorithm: Algori
 }
 
 /// Read entries from a tar archive reader
-fn read_archive_entries<R: Read>(archive: &mut Archive<R>, entries: &mut Vec<ArchiveEntry>) -> Result<()> {
+fn read_archive_entries<R: Read>(
+    archive: &mut Archive<R>,
+    entries: &mut Vec<ArchiveEntry>,
+) -> Result<()> {
     // Read all entries
     for entry in archive.entries()? {
         let entry = entry?;
         let header = entry.header();
         let path = entry.path()?;
-        
+
         let archive_entry = ArchiveEntry {
             path: path.to_path_buf(),
             size: header.size()?,
@@ -670,7 +712,7 @@ fn read_archive_entries<R: Read>(archive: &mut Archive<R>, entries: &mut Vec<Arc
                 None
             },
         };
-        
+
         entries.push(archive_entry);
     }
 
@@ -687,7 +729,10 @@ pub fn extract_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     let archive_path = archive_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    info!("Extracting {:?} to {:?} with options: {:?}", archive_path, output_dir, options);
+    info!(
+        "Extracting {:?} to {:?} with options: {:?}",
+        archive_path, output_dir, options
+    );
 
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
@@ -699,7 +744,7 @@ pub fn extract_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-        
+
         // Apply strip components
         let path = if let Some(strip) = options.strip_components {
             let components: Vec<_> = path.components().collect();
@@ -711,7 +756,7 @@ pub fn extract_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         } else {
             path.to_path_buf()
         };
-        
+
         let dest_path = output_dir.join(&path);
 
         // Handle existing files
@@ -746,7 +791,10 @@ pub fn extract_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     let archive_path = archive_path.as_ref();
     let output_dir = output_dir.as_ref();
 
-    info!("Extracting compressed {:?} archive {:?} to {:?} with options", algorithm, archive_path, output_dir);
+    info!(
+        "Extracting compressed {:?} archive {:?} to {:?} with options",
+        algorithm, archive_path, output_dir
+    );
 
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
@@ -791,7 +839,7 @@ fn extract_archive_entries_with_options<R: Read>(
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-        
+
         // Apply strip components
         let path = if let Some(strip) = options.strip_components {
             let components: Vec<_> = path.components().collect();
@@ -803,7 +851,7 @@ fn extract_archive_entries_with_options<R: Read>(
         } else {
             path.to_path_buf()
         };
-        
+
         let dest_path = output_dir.join(&path);
 
         // Handle existing files
@@ -846,34 +894,37 @@ fn extract_entry<R: Read>(entry: &mut tar::Entry<R>, dest_path: &Path) -> Result
             // Extract symlink
             if let Some(link_target) = header.link_name()? {
                 debug!("Creating symlink: {:?} -> {:?}", dest_path, link_target);
-                
+
                 // Remove existing file if it exists
                 if dest_path.exists() {
                     fs::remove_file(dest_path).ok();
                 }
-                
+
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs;
                     fs::symlink(&link_target, dest_path)?;
                 }
-                
+
                 #[cfg(not(unix))]
                 {
-                    warn!("Symlinks are not supported on this platform, skipping: {:?}", dest_path);
+                    warn!(
+                        "Symlinks are not supported on this platform, skipping: {:?}",
+                        dest_path
+                    );
                 }
             }
         }
         _ => {
             // Regular file or directory
             entry.unpack(dest_path)?;
-            
+
             // Try to preserve metadata
             let header = entry.header().clone();
             apply_tar_metadata(dest_path, &header);
         }
     }
-    
+
     Ok(())
 }
 
@@ -883,14 +934,19 @@ fn get_unique_filename(path: &Path) -> PathBuf {
     let stem = path.file_stem().unwrap_or_default();
     let extension = path.extension();
     let parent = path.parent().unwrap_or(Path::new(""));
-    
+
     loop {
         let new_name = if let Some(ext) = extension {
-            format!("{} ({}).{}", stem.to_string_lossy(), counter, ext.to_string_lossy())
+            format!(
+                "{} ({}).{}",
+                stem.to_string_lossy(),
+                counter,
+                ext.to_string_lossy()
+            )
         } else {
             format!("{} ({})", stem.to_string_lossy(), counter)
         };
-        
+
         let new_path = parent.join(new_name);
         if !new_path.exists() {
             return new_path;

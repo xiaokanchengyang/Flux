@@ -1,10 +1,10 @@
 //! Configuration module
 
 use crate::{Error, Result};
+use dirs::config_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use dirs::config_dir;
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +15,9 @@ pub struct Config {
     pub archive: ArchiveConfig,
     /// Performance settings
     pub performance: PerformanceConfig,
+    /// Custom compression rules
+    #[serde(default)]
+    pub rules: Vec<CompressionRule>,
 }
 
 /// Compression configuration
@@ -52,6 +55,27 @@ pub struct PerformanceConfig {
     pub buffer_size: u32,
 }
 
+/// Custom compression rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressionRule {
+    /// Rule name
+    pub name: String,
+    /// File patterns to match (glob patterns)
+    pub patterns: Vec<String>,
+    /// Minimum file size in bytes (optional)
+    pub min_size: Option<u64>,
+    /// Maximum file size in bytes (optional)
+    pub max_size: Option<u64>,
+    /// Compression algorithm to use
+    pub algorithm: String,
+    /// Compression level (optional)
+    pub level: Option<u32>,
+    /// Number of threads (optional)
+    pub threads: Option<usize>,
+    /// Priority (higher priority rules are evaluated first)
+    pub priority: i32,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -67,10 +91,49 @@ impl Default for Config {
                 follow_symlinks: false,
             },
             performance: PerformanceConfig {
-                threads: 0, // Auto-detect
+                threads: 0,      // Auto-detect
                 memory_limit: 0, // Unlimited
                 buffer_size: 64, // 64KB
             },
+            rules: vec![
+                // Example rule: Use brotli for HTML/CSS/JS files
+                CompressionRule {
+                    name: "web_assets".to_string(),
+                    patterns: vec![
+                        "*.html".to_string(),
+                        "*.css".to_string(),
+                        "*.js".to_string(),
+                    ],
+                    min_size: None,
+                    max_size: None,
+                    algorithm: "brotli".to_string(),
+                    level: Some(11),
+                    threads: None,
+                    priority: 100,
+                },
+                // Example rule: Store very small files without compression
+                CompressionRule {
+                    name: "tiny_files".to_string(),
+                    patterns: vec!["*".to_string()],
+                    min_size: None,
+                    max_size: Some(100), // Less than 100 bytes
+                    algorithm: "store".to_string(),
+                    level: None,
+                    threads: None,
+                    priority: 90,
+                },
+                // Example rule: Use XZ for large archive files
+                CompressionRule {
+                    name: "large_archives".to_string(),
+                    patterns: vec!["*.tar".to_string(), "*.iso".to_string()],
+                    min_size: Some(100 * 1024 * 1024), // > 100MB
+                    max_size: None,
+                    algorithm: "xz".to_string(),
+                    level: Some(6),
+                    threads: Some(1),
+                    priority: 95,
+                },
+            ],
         }
     }
 }
@@ -78,21 +141,22 @@ impl Default for Config {
 impl Config {
     /// Get the configuration file path
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = config_dir()
-            .ok_or_else(|| Error::ConfigError("Unable to determine config directory".to_string()))?;
-        
+        let config_dir = config_dir().ok_or_else(|| {
+            Error::ConfigError("Unable to determine config directory".to_string())
+        })?;
+
         let flux_dir = config_dir.join("flux");
         if !flux_dir.exists() {
             fs::create_dir_all(&flux_dir)?;
         }
-        
+
         Ok(flux_dir.join("config.toml"))
     }
 
     /// Load configuration from file
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
-        
+
         if !path.exists() {
             // Create default config if it doesn't exist
             let default_config = Self::default();
@@ -103,7 +167,7 @@ impl Config {
         let contents = fs::read_to_string(&path)?;
         let config: Config = toml::from_str(&contents)
             .map_err(|e| Error::ConfigError(format!("Failed to parse config: {}", e)))?;
-        
+
         Ok(config)
     }
 
@@ -112,7 +176,7 @@ impl Config {
         let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self)
             .map_err(|e| Error::ConfigError(format!("Failed to serialize config: {}", e)))?;
-        
+
         fs::write(&path, contents)?;
         Ok(())
     }
@@ -126,7 +190,6 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_default_config() {
@@ -142,8 +205,11 @@ mod tests {
         let config = Config::default();
         let toml_str = toml::to_string(&config).unwrap();
         let deserialized: Config = toml::from_str(&toml_str).unwrap();
-        
-        assert_eq!(config.compression.default_algorithm, deserialized.compression.default_algorithm);
+
+        assert_eq!(
+            config.compression.default_algorithm,
+            deserialized.compression.default_algorithm
+        );
         assert_eq!(config.performance.threads, deserialized.performance.threads);
     }
 }

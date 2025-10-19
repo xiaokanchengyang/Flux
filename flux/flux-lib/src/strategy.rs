@@ -1,8 +1,12 @@
 //! Smart compression strategy module
 
+use crate::config::Config;
 use crate::{Error, Result};
-use std::path::Path;
+use glob::Pattern;
 use rayon::current_num_threads;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::Path;
 use tracing::{debug, info};
 
 /// Compression algorithm
@@ -20,16 +24,17 @@ pub enum Algorithm {
     Brotli,
 }
 
-impl Algorithm {
-    /// Parse algorithm from string
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for Algorithm {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "store" | "none" => Some(Algorithm::Store),
-            "gzip" | "gz" => Some(Algorithm::Gzip),
-            "zstd" | "zst" => Some(Algorithm::Zstd),
-            "xz" => Some(Algorithm::Xz),
-            "brotli" | "br" => Some(Algorithm::Brotli),
-            _ => None,
+            "store" | "none" => Ok(Algorithm::Store),
+            "gzip" | "gz" => Ok(Algorithm::Gzip),
+            "zstd" | "zst" => Ok(Algorithm::Zstd),
+            "xz" => Ok(Algorithm::Xz),
+            "brotli" | "br" => Ok(Algorithm::Brotli),
+            _ => Err(()),
         }
     }
 }
@@ -60,23 +65,23 @@ impl Default for CompressionStrategy {
 
 /// Known compressed file extensions
 const COMPRESSED_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif",  // Images
-    "mp4", "avi", "mkv", "mov", "webm", "flv",                     // Videos
-    "mp3", "aac", "flac", "ogg", "opus", "m4a", "wma",            // Audio
-    "zip", "rar", "7z", "gz", "bz2", "xz", "zst", "lz4",          // Archives
-    "dmg", "iso", "img",                                            // Disk images
-    "pdf", "epub", "mobi",                                          // Documents
-    "apk", "ipa", "deb", "rpm", "msi", "exe",                      // Packages
+    "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", // Images
+    "mp4", "avi", "mkv", "mov", "webm", "flv", // Videos
+    "mp3", "aac", "flac", "ogg", "opus", "m4a", "wma", // Audio
+    "zip", "rar", "7z", "gz", "bz2", "xz", "zst", "lz4", // Archives
+    "dmg", "iso", "img", // Disk images
+    "pdf", "epub", "mobi", // Documents
+    "apk", "ipa", "deb", "rpm", "msi", "exe", // Packages
 ];
 
 /// Text file extensions that compress well
 const TEXT_EXTENSIONS: &[&str] = &[
-    "txt", "log", "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
-    "md", "rst", "tex", "org", "adoc",                              // Markup
-    "html", "htm", "css", "js", "ts", "jsx", "tsx",                // Web
+    "txt", "log", "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "md", "rst", "tex",
+    "org", "adoc", // Markup
+    "html", "htm", "css", "js", "ts", "jsx", "tsx", // Web
     "py", "rs", "go", "c", "cpp", "h", "hpp", "java", "kt", "swift", // Code
-    "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",              // Scripts
-    "sql", "csv", "tsv",                                            // Data
+    "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", // Scripts
+    "sql", "csv", "tsv", // Data
 ];
 
 /// Large file threshold in bytes (100MB)
@@ -85,12 +90,120 @@ const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024;
 /// Small file threshold in bytes (1KB)
 const SMALL_FILE_THRESHOLD: u64 = 1024;
 
+/// High entropy threshold (above this, file is likely compressed)
+const HIGH_ENTROPY_THRESHOLD: f64 = 7.5;
+
+/// Sample size for entropy calculation (16KB)
+const ENTROPY_SAMPLE_SIZE: usize = 16 * 1024;
+
+/// Calculate Shannon entropy for a byte sample
+fn calculate_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
+    }
+
+    // Count byte frequencies
+    let mut freq = [0u64; 256];
+    for &byte in data {
+        freq[byte as usize] += 1;
+    }
+
+    // Calculate entropy
+    let len = data.len() as f64;
+    let mut entropy = 0.0;
+
+    for &count in &freq {
+        if count > 0 {
+            let p = count as f64 / len;
+            entropy -= p * p.log2();
+        }
+    }
+
+    entropy
+}
+
+/// Check if a file has high entropy (likely compressed)
+fn is_high_entropy_file(path: &Path) -> Result<bool> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+
+    // Read sample from the beginning of the file
+    let mut buffer = vec![0u8; ENTROPY_SAMPLE_SIZE];
+    let bytes_read = reader.read(&mut buffer)?;
+
+    if bytes_read == 0 {
+        return Ok(false);
+    }
+
+    buffer.truncate(bytes_read);
+    let entropy = calculate_entropy(&buffer);
+
+    debug!(
+        "File {:?} entropy: {:.2} (threshold: {:.2})",
+        path.file_name().unwrap_or_default(),
+        entropy,
+        HIGH_ENTROPY_THRESHOLD
+    );
+
+    Ok(entropy > HIGH_ENTROPY_THRESHOLD)
+}
+
+/// Apply custom rules from configuration to determine compression strategy
+fn apply_custom_rules(path: &Path, config: &Config) -> Option<CompressionStrategy> {
+    let file_name = path.file_name()?.to_str()?;
+    let file_size = path.metadata().ok()?.len();
+
+    // Sort rules by priority (descending)
+    let mut rules = config.rules.clone();
+    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+
+    for rule in rules {
+        // Check if any pattern matches
+        let pattern_matches = rule.patterns.iter().any(|pattern| {
+            Pattern::new(pattern)
+                .ok()
+                .map(|p| p.matches(file_name))
+                .unwrap_or(false)
+        });
+
+        if !pattern_matches {
+            continue;
+        }
+
+        // Check size constraints
+        if let Some(min_size) = rule.min_size {
+            if file_size < min_size {
+                continue;
+            }
+        }
+
+        if let Some(max_size) = rule.max_size {
+            if file_size > max_size {
+                continue;
+            }
+        }
+
+        // Rule matches, create strategy
+        info!("Applying custom rule '{}' to file {:?}", rule.name, path);
+
+        let algorithm = rule.algorithm.parse().ok()?;
+        return Some(CompressionStrategy {
+            algorithm,
+            level: rule.level.unwrap_or(3),
+            threads: rule.threads.unwrap_or_else(current_num_threads),
+            force_compress: false,
+        });
+    }
+
+    None
+}
+
 impl CompressionStrategy {
     /// Create a smart compression strategy based on file characteristics
     pub fn smart<P: AsRef<Path>>(path: P, level: Option<u32>, threads: Option<usize>) -> Self {
         let path = path.as_ref();
         let mut strategy = Self::default();
-        
+
         // Override with user preferences if provided
         if let Some(level) = level {
             strategy.level = level;
@@ -99,15 +212,27 @@ impl CompressionStrategy {
             strategy.threads = threads;
         }
 
+        // Rule 0: Check custom rules from configuration
+        if let Ok(config) = Config::load() {
+            if let Some(custom_strategy) = apply_custom_rules(path, &config) {
+                info!("Using custom rule-based strategy: {:?}", custom_strategy);
+                return custom_strategy;
+            }
+        }
+
         // Get file extension
-        let extension = path.extension()
+        let extension = path
+            .extension()
             .and_then(|ext| ext.to_str())
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
 
         // Rule 1: Text files prefer zstd or brotli with high thread count
         if TEXT_EXTENSIONS.contains(&extension.as_str()) {
-            info!("Detected text file ({}) - using zstd with high thread count", extension);
+            info!(
+                "Detected text file ({}) - using zstd with high thread count",
+                extension
+            );
             strategy.algorithm = Algorithm::Zstd;
             strategy.threads = current_num_threads().max(4);
             if strategy.level == 3 {
@@ -118,17 +243,45 @@ impl CompressionStrategy {
 
         // Rule 2: Skip compression for already compressed files
         if COMPRESSED_EXTENSIONS.contains(&extension.as_str()) && !strategy.force_compress {
-            info!("Detected compressed file ({}) - using store mode", extension);
+            info!(
+                "Detected compressed file ({}) - using store mode",
+                extension
+            );
             strategy.algorithm = Algorithm::Store;
             return strategy;
+        }
+
+        // Rule 2b: Check entropy for files without known compressed extensions
+        // This catches compressed files that might not have standard extensions
+        // Skip entropy check for known text files to avoid false positives
+        if !TEXT_EXTENSIONS.contains(&extension.as_str())
+            && !COMPRESSED_EXTENSIONS.contains(&extension.as_str())
+        {
+            if let Ok(metadata) = path.metadata() {
+                // Only check entropy for files larger than 1KB to avoid false positives
+                if metadata.len() > 1024 {
+                    if let Ok(is_compressed) = is_high_entropy_file(path) {
+                        if is_compressed && !strategy.force_compress {
+                            info!(
+                                "Detected high-entropy file (likely compressed) - using store mode"
+                            );
+                            strategy.algorithm = Algorithm::Store;
+                            return strategy;
+                        }
+                    }
+                }
+            }
         }
 
         // Rule 3: Large file handling
         if let Ok(metadata) = path.metadata() {
             let size = metadata.len();
-            
+
             if size > LARGE_FILE_THRESHOLD {
-                info!("Detected large file ({} bytes) - using memory-efficient settings", size);
+                info!(
+                    "Detected large file ({} bytes) - using memory-efficient settings",
+                    size
+                );
                 strategy.algorithm = Algorithm::Xz;
                 strategy.threads = 1; // XZ is memory intensive, use single thread
                 if strategy.level == 3 {
@@ -136,10 +289,24 @@ impl CompressionStrategy {
                 }
                 return strategy;
             }
-            
-            // Rule 4: Small files should be batched
+
+            // Rule 4: Medium-sized files (1MB - 100MB) - balanced approach
+            if size > 1024 * 1024 && size < LARGE_FILE_THRESHOLD {
+                info!(
+                    "Detected medium file ({:.2} MB) - using balanced settings",
+                    size as f64 / (1024.0 * 1024.0)
+                );
+                strategy.algorithm = Algorithm::Zstd;
+                // Use moderate thread count for medium files
+                strategy.threads = (current_num_threads() / 2).max(2);
+            }
+
+            // Rule 5: Small files should be batched
             if size < SMALL_FILE_THRESHOLD {
-                debug!("Detected small file ({} bytes) - will be batched in tar", size);
+                debug!(
+                    "Detected small file ({} bytes) - will be batched in tar",
+                    size
+                );
                 // Keep default zstd for small files, they'll be batched in tar
             }
         }
@@ -156,7 +323,7 @@ impl CompressionStrategy {
     ) -> Result<Self> {
         let path = path.as_ref();
         let mut strategy = Self::default();
-        
+
         // Override with user preferences if provided
         if let Some(level) = level {
             strategy.level = level;
@@ -178,7 +345,7 @@ impl CompressionStrategy {
         {
             if entry.file_type().is_file() {
                 file_count += 1;
-                
+
                 if let Ok(metadata) = entry.metadata() {
                     total_size += metadata.len();
                 }
@@ -269,8 +436,11 @@ impl CompressionStrategy {
                 self.threads = 1;
             }
         }
-        
-        debug!("Adjusted threads for {:?}: {}", self.algorithm, self.threads);
+
+        debug!(
+            "Adjusted threads for {:?}: {}",
+            self.algorithm, self.threads
+        );
     }
 }
 
@@ -282,17 +452,20 @@ mod tests {
 
     #[test]
     fn test_algorithm_from_str() {
-        assert_eq!(Algorithm::from_str("zstd"), Some(Algorithm::Zstd));
-        assert_eq!(Algorithm::from_str("GZIP"), Some(Algorithm::Gzip));
-        assert_eq!(Algorithm::from_str("store"), Some(Algorithm::Store));
-        assert_eq!(Algorithm::from_str("invalid"), None);
+        assert_eq!("zstd".parse::<Algorithm>(), Ok(Algorithm::Zstd));
+        assert_eq!("GZIP".parse::<Algorithm>(), Ok(Algorithm::Gzip));
+        assert_eq!("store".parse::<Algorithm>(), Ok(Algorithm::Store));
+        assert!("invalid".parse::<Algorithm>().is_err());
     }
 
     #[test]
     fn test_smart_strategy_for_text_file() {
         let temp_dir = TempDir::new().unwrap();
         let text_file = temp_dir.path().join("test.log");
-        fs::write(&text_file, "log content").unwrap();
+        // Create a larger text file to avoid entropy false positives
+        let content =
+            "This is a log file with enough content to be properly analyzed.\n".repeat(20);
+        fs::write(&text_file, content).unwrap();
 
         let strategy = CompressionStrategy::smart(&text_file, None, None);
         assert_eq!(strategy.algorithm, Algorithm::Zstd);
@@ -312,14 +485,18 @@ mod tests {
     #[test]
     fn test_smart_strategy_for_directory() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create mixed content
         fs::write(temp_dir.path().join("file1.txt"), "text content").unwrap();
         fs::write(temp_dir.path().join("file2.log"), "log content").unwrap();
         fs::write(temp_dir.path().join("image.jpg"), "fake jpeg").unwrap();
-        
-        let strategy = CompressionStrategy::smart_for_directory(temp_dir.path(), None, None).unwrap();
+
+        let strategy =
+            CompressionStrategy::smart_for_directory(temp_dir.path(), None, None).unwrap();
         // Should recognize mixed content and use appropriate strategy
-        assert!(matches!(strategy.algorithm, Algorithm::Zstd | Algorithm::Store));
+        assert!(matches!(
+            strategy.algorithm,
+            Algorithm::Zstd | Algorithm::Store
+        ));
     }
 }

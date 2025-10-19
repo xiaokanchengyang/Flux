@@ -1,0 +1,30 @@
+[package]
+name = "flux-lib"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Core library for flux - a cross-platform file archiver and compressor"
+
+[dependencies]
+tar = { workspace = true }
+flate2 = { workspace = true }
+zstd = { workspace = true }
+xz2 = { workspace = true }
+brotli = { workspace = true }
+zip = { workspace = true }
+walkdir = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+filetime = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+assert_cmd = { workspace = true }
+predicates = { workspace = true }

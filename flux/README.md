@@ -42,11 +42,20 @@ flux pack ./my-folder -o archive.tar
 # With compression (auto-detected from extension)
 flux pack ./my-folder -o archive.tar.zst
 
-# With smart compression strategy
+# With smart compression strategy (default when no --algo specified)
 flux pack ./my-folder -o archive.tar.zst --smart
 
-# Specify compression algorithm
-flux pack ./my-folder -o archive.tar --algo zstd --level 3
+# Specify compression algorithm and level
+flux pack ./my-folder -o archive.tar.zst --algo zstd --level 6
+
+# Use multiple threads
+flux pack ./my-folder -o archive.tar.zst --threads 8
+
+# Follow symlinks instead of archiving them as links
+flux pack ./my-folder -o archive.tar.zst --follow-symlinks
+
+# Force compression on already compressed files
+flux pack ./my-folder -o archive.tar.zst --force-compress
 ```
 
 ### Extract files from an archive
@@ -58,8 +67,17 @@ flux extract archive.tar.zst
 # Extract to specific directory
 flux extract archive.tar.zst -o ./extracted
 
-# With options
+# Overwrite existing files
 flux extract archive.tar.zst -o ./extracted --overwrite
+
+# Skip existing files (default behavior)
+flux extract archive.tar.zst -o ./extracted --skip
+
+# Rename conflicting files
+flux extract archive.tar.zst -o ./extracted --rename
+
+# Strip leading path components
+flux extract archive.tar.zst -o ./extracted --strip-components 1
 ```
 
 ### Inspect archive contents
@@ -84,6 +102,16 @@ flux config --edit
 # Show config file path
 flux config --path
 ```
+
+## Exit Codes
+
+Flux uses standardized exit codes to indicate different types of errors:
+
+- `0` - Success
+- `1` - General error (e.g., configuration error, unknown error)
+- `2` - I/O error (e.g., file not found, permission denied)
+- `3` - Invalid arguments (e.g., unsupported format, invalid path)
+- `4` - Partial failure (e.g., archive or compression error)
 
 ## Smart Compression Strategy
 
@@ -142,17 +170,19 @@ RUST_LOG=debug cargo run -- pack ./test -o test.tar
 - [x] Simple tar pack/extract functionality
 - [x] README and project setup
 
-### Milestone 1 - Basic Archive Support
-- [ ] Zip archive support
-- [ ] Gzip compression
-- [ ] Progress bars
-- [ ] Basic metadata preservation
+### Milestone 1 - Basic Archive Support ✓
+- [x] Tar archive support with multiple compression formats
+- [x] Gzip compression
+- [x] Progress bars (via tracing logs)
+- [x] Metadata preservation (permissions, timestamps, symlinks)
 
-### Milestone 2 - Smart Compression
-- [ ] Compression strategy engine
-- [ ] Configuration file support
-- [ ] Concurrent file processing
-- [ ] Multiple compression algorithms (zstd, xz, brotli)
+### Milestone 2 - Smart Compression ✓
+- [x] Compression strategy engine
+- [x] Configuration file support
+- [x] Concurrent file processing (via rayon)
+- [x] Multiple compression algorithms (zstd, xz, brotli, gzip)
+- [x] Intelligent algorithm selection based on file type and size
+- [x] Memory-efficient processing for large files
 
 ### Milestone 3 - Extended Formats
 - [ ] Additional archive formats

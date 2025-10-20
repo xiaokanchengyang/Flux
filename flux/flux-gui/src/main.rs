@@ -485,7 +485,7 @@ pub fn handle_extract_task(
 }
 
 /// Handle sync/incremental backup task in background thread
-#[instrument(skip(ui_sender, cancel_flag, options))]
+#[instrument(skip(ui_sender, _cancel_flag, options))]
 pub fn handle_sync_task(
     source_dir: PathBuf,
     target_archive: PathBuf,
@@ -623,9 +623,13 @@ fn main() -> Result<(), eframe::Error> {
     
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0])
-            .with_min_inner_size([400.0, 300.0])
+            .with_inner_size([960.0, 720.0])
+            .with_min_inner_size([640.0, 480.0])
             .with_icon(icon),
+        centered: true,
+        follow_system_theme: false, // We manage theme ourselves
+        default_theme: eframe::Theme::Dark,
+        persist_window: true, // Enable window state persistence
         ..Default::default()
     };
 

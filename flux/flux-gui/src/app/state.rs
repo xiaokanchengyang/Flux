@@ -7,6 +7,7 @@ use egui_notify::Toasts;
 use crate::task::TaskCommand;
 use crate::task::ToUi;
 use crate::theme::FluxTheme;
+use serde::{Deserialize, Serialize};
 
 /// Application view states
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,4 +80,54 @@ pub struct FluxApp {
     pub(super) sync_target_archive: Option<PathBuf>,
     /// Existing manifest path (if found)
     pub(super) sync_manifest_path: Option<PathBuf>,
+    /// Show about dialog
+    pub(super) show_about_dialog: bool,
+}
+
+/// Persistent application state
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppPersistence {
+    /// Window size
+    pub window_size: Option<[f32; 2]>,
+    /// Window position
+    pub window_pos: Option<[f32; 2]>,
+    /// Show log panel by default
+    pub show_log_panel: bool,
+    /// Preferred compression format
+    pub preferred_format: Option<String>,
+    /// Theme preference (true = dark, false = light)
+    pub dark_mode: bool,
+    /// Last used output directory
+    pub last_output_dir: Option<PathBuf>,
+}
+
+impl FluxApp {
+    /// Load persistent state from storage
+    pub fn load_persistence(storage: Option<&dyn eframe::Storage>) -> AppPersistence {
+        if let Some(storage) = storage {
+            if let Some(data) = storage.get_string(eframe::APP_KEY) {
+                serde_json::from_str(&data).unwrap_or_default()
+            } else {
+                AppPersistence::default()
+            }
+        } else {
+            AppPersistence::default()
+        }
+    }
+    
+    /// Save persistent state to storage
+    pub fn save_persistence(&self, storage: &mut dyn eframe::Storage) {
+        let persistence = AppPersistence {
+            window_size: None, // Will be set by eframe automatically
+            window_pos: None,  // Will be set by eframe automatically
+            show_log_panel: self.show_log_panel,
+            preferred_format: Some(self.compression_format.clone()),
+            dark_mode: self.theme.is_dark_mode(),
+            last_output_dir: self.output_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf())),
+        };
+        
+        if let Ok(data) = serde_json::to_string(&persistence) {
+            storage.set_string(eframe::APP_KEY, data);
+        }
+    }
 }

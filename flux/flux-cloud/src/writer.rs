@@ -2,10 +2,8 @@ use std::io::Write;
 use bytes::{BytesMut, BufMut};
 use object_store::path::Path;
 use object_store::MultipartUpload;
-use crate::{CloudStore, CloudPath, Result, CloudError};
-
-const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8MB buffer
-const MULTIPART_THRESHOLD: usize = 16 * 1024 * 1024; // 16MB threshold for multipart
+use tracing::debug;
+use crate::{CloudStore, CloudPath, CloudConfig, Result, CloudError};
 
 /// A writer that adapts cloud storage to implement std::io::Write
 pub struct CloudWriter {
@@ -13,8 +11,8 @@ pub struct CloudWriter {
     path: Path,
     /// Buffer for accumulating data before upload
     buffer: BytesMut,
-    /// Maximum buffer size before forcing a flush
-    buffer_size: usize,
+    /// Configuration
+    config: CloudConfig,
     /// Total bytes written
     total_written: u64,
     /// Multipart upload handle (for large files)
@@ -26,36 +24,37 @@ pub struct CloudWriter {
 impl CloudWriter {
     /// Create a new CloudWriter for the given cloud URL
     pub fn new(url: &str) -> Result<Self> {
-        Self::with_buffer_size(url, DEFAULT_BUFFER_SIZE)
+        Self::with_config(url, CloudConfig::default())
     }
     
-    /// Create a new CloudWriter with a custom buffer size
-    pub fn with_buffer_size(url: &str, buffer_size: usize) -> Result<Self> {
+    /// Create a new CloudWriter with custom configuration
+    pub fn with_config(url: &str, config: CloudConfig) -> Result<Self> {
         let cloud_path = CloudPath::parse(url)?;
         let store = CloudStore::new(&cloud_path)?;
-        
-        Ok(CloudWriter {
-            store,
-            path: cloud_path.path,
-            buffer: BytesMut::with_capacity(buffer_size),
-            buffer_size,
-            total_written: 0,
-            multipart: None,
-            part_number: 0,
-        })
+        Self::from_store_with_config(store, cloud_path.path, config)
     }
     
     /// Create a CloudWriter from an existing CloudStore and path
     pub fn from_store(store: CloudStore, path: Path) -> Result<Self> {
+        Self::from_store_with_config(store, path, CloudConfig::default())
+    }
+    
+    /// Create a CloudWriter from an existing CloudStore and path with custom config
+    pub fn from_store_with_config(store: CloudStore, path: Path, config: CloudConfig) -> Result<Self> {
         Ok(CloudWriter {
             store,
             path,
-            buffer: BytesMut::with_capacity(DEFAULT_BUFFER_SIZE),
-            buffer_size: DEFAULT_BUFFER_SIZE,
+            buffer: BytesMut::with_capacity(config.write_buffer_size),
+            config,
             total_written: 0,
             multipart: None,
             part_number: 0,
         })
+    }
+    
+    /// Get the total number of bytes written
+    pub fn bytes_written(&self) -> u64 {
+        self.total_written
     }
     
     /// Flush the current buffer to cloud storage
@@ -69,8 +68,10 @@ impl CloudWriter {
         if self.multipart.is_some() {
             // We're in multipart mode, upload as a part
             self.upload_part(data)?;
-        } else if self.total_written + data.len() as u64 > MULTIPART_THRESHOLD as u64 {
+        } else if self.config.use_multipart_upload 
+            && self.total_written + data.len() as u64 > self.config.multipart_threshold as u64 {
             // Switch to multipart mode
+            debug!("Starting multipart upload for {}", self.path);
             self.start_multipart()?;
             self.upload_part(data)?;
         } else {
@@ -111,6 +112,7 @@ impl CloudWriter {
         if let Some(mut upload) = self.multipart.take() {
             // Complete multipart upload
             self.flush_buffer()?;
+            debug!("Completing multipart upload for {}", self.path);
             self.store.runtime().block_on(async {
                 upload.complete().await
             }).map_err(CloudError::ObjectStore)?;
@@ -118,6 +120,7 @@ impl CloudWriter {
             // Simple put for small files
             let data = self.buffer.split().freeze();
             if !data.is_empty() {
+                debug!("Uploading {} bytes to {}", data.len(), self.path);
                 self.store.runtime().block_on(async {
                     self.store.store()
                         .put(&self.path, data.into())
@@ -127,22 +130,35 @@ impl CloudWriter {
         }
         Ok(())
     }
+    
+    /// Finalize the write operation
+    ///
+    /// This must be called to ensure all data is uploaded to the cloud.
+    /// It's automatically called on drop, but calling it explicitly allows
+    /// for proper error handling.
+    pub fn finalize(mut self) -> Result<()> {
+        self.finish_upload()
+    }
 }
 
 impl Write for CloudWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        
         // Check if adding this data would exceed buffer size
-        if self.buffer.len() + buf.len() > self.buffer_size {
+        if self.buffer.len() + buf.len() > self.config.write_buffer_size {
             self.flush_buffer()?;
         }
         
         // If the incoming data is larger than buffer size, handle it specially
-        if buf.len() > self.buffer_size {
+        if buf.len() > self.config.write_buffer_size {
             // Flush any existing buffer first
             self.flush_buffer()?;
             
-            // Start multipart if not already started
-            if self.multipart.is_none() {
+            // Start multipart if not already started and configured
+            if self.config.use_multipart_upload && self.multipart.is_none() {
                 self.start_multipart()?;
             }
             

@@ -157,7 +157,11 @@ fn test_multipart_threshold() {
     
     // We can't test actual upload without credentials, but we can verify
     // the writer accepts large data
-    let writer = CloudWriter::with_buffer_size("s3://fake/path", 8 * 1024 * 1024);
+    let config = flux_cloud::CloudConfig {
+        write_buffer_size: 8 * 1024 * 1024,
+        ..Default::default()
+    };
+    let writer = CloudWriter::with_config("s3://fake/path", config);
     assert!(writer.is_ok());
     
     // The writer should handle large data by switching to multipart

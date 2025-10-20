@@ -133,12 +133,12 @@ jobs:
       - name: Build (native)
         if: '!matrix.use_cross'
         run: |
-          cargo build --release --target ${{ matrix.target }} --package flux-cli
+          cargo build --release --target ${{ matrix.target }} --package flux
 
       - name: Build (cross)
         if: matrix.use_cross
         run: |
-          cross build --release --target ${{ matrix.target }} --package flux-cli
+          cross build --release --target ${{ matrix.target }} --package flux
 
       - name: Package Binary
         shell: bash
@@ -275,18 +275,18 @@ jobs:
 
       - name: Build GUI
         run: |
-          cd flux/flux-gui
+          cd crates/flux-gui
           ${{ matrix.bundle_cmd }}
 
       - name: List bundle outputs
         run: |
           echo "Bundle outputs:"
-          ls -la flux/target/release/bundle/*/
+          ls -la crates/flux-gui/target/release/bundle/*/
 
       - name: Upload GUI assets
         shell: bash
         run: |
-          cd flux
+          cd crates/flux-gui
           for pattern in ${{ matrix.asset_patterns }}; do
             for file in $(find target/release/bundle -name "$pattern" -type f); do
               echo "Uploading $file"
@@ -349,8 +349,8 @@ jobs:
       - name: Wait for crates.io to index
         run: sleep 30
 
-      - name: Publish flux-cli
+      - name: Publish flux
         run: |
-          cd flux-cli
+          cd crates/flux
           cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
         continue-on-error: true

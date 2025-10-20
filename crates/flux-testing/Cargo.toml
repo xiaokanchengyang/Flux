@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Testing utilities and fixtures for flux - a cross-platform file archiver"
-readme = "../README.md"
+readme = "../../README.md"
 keywords = ["testing", "test-utilities", "fixtures"]
 categories = ["development-tools::testing"]
 

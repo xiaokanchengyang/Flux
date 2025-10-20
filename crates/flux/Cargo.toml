@@ -1,5 +1,5 @@
 [package]
-name = "flux-cli"
+name = "flux"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -16,8 +16,8 @@ name = "flux"
 path = "src/main.rs"
 
 [dependencies]
-flux-core = { path = "../../crates/flux-core" }
-flux-cloud = { path = "../../crates/flux-cloud", optional = true }
+flux-core = { path = "../flux-core" }
+flux-cloud = { path = "../flux-cloud", optional = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
 tracing = { workspace = true }

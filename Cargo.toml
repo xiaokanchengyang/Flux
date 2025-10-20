@@ -1,12 +1,12 @@
 [workspace]
-members = [
-    "crates/flux-core",
-    "crates/flux-cloud", 
-    "crates/flux-testing",
-    "apps/flux-cli",
-    "apps/flux-gui"
-]
 resolver = "2"
+members = [
+    "crates/flux",
+    "crates/flux-gui",
+    "crates/flux-core",
+    "crates/flux-cloud",
+    "crates/flux-testing"
+]
 
 # Inherit workspace configuration from flux/Cargo.toml
 [workspace.package]

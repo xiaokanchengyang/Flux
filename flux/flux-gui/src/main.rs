@@ -3,15 +3,20 @@
 use crossbeam_channel::Sender;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use tracing::{debug, info, warn, error, instrument};
 
 mod task;
 mod views;
 mod app;
+mod logging;
+mod progress_tracker;
 
 use task::{ToUi, ProgressUpdate, TaskResult};
 use app::FluxApp;
+use progress_tracker::ProgressTracker;
 
 /// Handle pack task in background thread
+#[instrument(skip(ui_sender, cancel_flag, options))]
 pub fn handle_pack_task(
     inputs: Vec<PathBuf>,
     output: PathBuf,
@@ -21,11 +26,13 @@ pub fn handle_pack_task(
 ) {
     
     if inputs.is_empty() {
+        error!("No input files provided");
         let _ = ui_sender.send(ToUi::Log("Error: No input files provided".to_string()));
         let _ = ui_sender.send(ToUi::Finished(TaskResult::Error("No input files".to_string())));
         return;
     }
     
+    info!(files = inputs.len(), output = %output.display(), "Starting pack operation");
     let _ = ui_sender.send(ToUi::Log(format!("Starting pack operation: {} files to {}", inputs.len(), output.display())));
 
     // Calculate total size of all input files for progress tracking
@@ -36,26 +43,33 @@ pub fn handle_pack_task(
         let size = calculate_path_size(input);
         total_size += size;
         file_sizes.push((input.clone(), size));
+        debug!(path = %input.display(), size_mb = size as f64 / (1024.0 * 1024.0), "Input file");
         let _ = ui_sender.send(ToUi::Log(format!("Input: {} ({:.2} MB)", input.display(), size as f64 / (1024.0 * 1024.0))));
     }
     
+    info!(total_size_mb = total_size as f64 / (1024.0 * 1024.0), "Total size calculated");
     let _ = ui_sender.send(ToUi::Log(format!("Total size: {:.2} MB", total_size as f64 / (1024.0 * 1024.0))));
     
     let mut processed_size: u64 = 0;
+    let mut progress_tracker = ProgressTracker::new();
     
     // Send initial progress
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: 0,
         total_bytes: total_size,
         current_file: "Preparing to pack...".to_string(),
+        speed_bps: 0.0,
+        eta_seconds: None,
     }));
     
     // Handle different compression formats
     match output.extension().and_then(|e| e.to_str()) {
         Some("zip") => {
             // For ZIP files, we'll pack each file individually
+            info!("Creating ZIP archive");
             let _ = ui_sender.send(ToUi::Log("Creating ZIP archive...".to_string()));
-            if let Err(e) = pack_multiple_zip(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks, &cancel_flag) {
+            if let Err(e) = pack_multiple_zip(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks, &cancel_flag, &mut progress_tracker) {
+                error!(error = %e, "Error creating ZIP");
                 let _ = ui_sender.send(ToUi::Log(format!("Error creating ZIP: {}", e)));
                 let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
                 return;
@@ -68,13 +82,13 @@ pub fn handle_pack_task(
             if filename.ends_with(".tar.gz") || filename.ends_with(".tar.zst") || 
                filename.ends_with(".tar.xz") || filename.ends_with(".tar.br") {
                 // Pack to compressed tar
-                if let Err(e) = pack_multiple_tar_compressed(&inputs, &output, ui_sender, &mut processed_size, total_size, options, &cancel_flag) {
+                if let Err(e) = pack_multiple_tar_compressed(&inputs, &output, ui_sender, &mut processed_size, total_size, options, &cancel_flag, &mut progress_tracker) {
                     let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
                     return;
                 }
             } else if ext == "tar" {
                 // Pack to uncompressed tar
-                if let Err(e) = pack_multiple_tar(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks, &cancel_flag) {
+                if let Err(e) = pack_multiple_tar(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks, &cancel_flag, &mut progress_tracker) {
                     let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
                     return;
                 }
@@ -83,10 +97,13 @@ pub fn handle_pack_task(
                 if inputs.len() == 1 {
                     match flux_lib::archive::pack_with_strategy(&inputs[0], &output, None, options) {
                         Ok(_) => {
+                            let (speed, _) = progress_tracker.update(total_size, total_size);
                             let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
                                 processed_bytes: total_size,
                                 total_bytes: total_size,
                                 current_file: "Packing complete".to_string(),
+                                speed_bps: speed,
+                                eta_seconds: None,
                             }));
                         }
                         Err(e) => {
@@ -109,6 +126,7 @@ pub fn handle_pack_task(
     // Get final file size
     if let Ok(metadata) = std::fs::metadata(&output) {
         let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+        info!(size_mb = size_mb, "Archive created successfully");
         let _ = ui_sender.send(ToUi::Log(format!("Archive created successfully: {:.2} MB", size_mb)));
     }
     
@@ -116,6 +134,7 @@ pub fn handle_pack_task(
 }
 
 /// Calculate the total size of a path (file or directory)
+#[instrument]
 fn calculate_path_size(path: &PathBuf) -> u64 {
     if path.is_file() {
         std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
@@ -133,6 +152,7 @@ fn calculate_path_size(path: &PathBuf) -> u64 {
 }
 
 /// Pack multiple files into a tar archive
+#[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
 fn pack_multiple_tar(
     inputs: &[PathBuf],
     output: &PathBuf,
@@ -141,6 +161,7 @@ fn pack_multiple_tar(
     total_size: u64,
     follow_symlinks: bool,
     cancel_flag: &Arc<AtomicBool>,
+    progress_tracker: &mut ProgressTracker,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use flux_lib::archive::tar;
     
@@ -155,10 +176,13 @@ fn pack_multiple_tar(
             return Err("Operation cancelled".into());
         }
         
+        let (speed, eta) = progress_tracker.update(*processed_size, total_size);
         let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
             processed_bytes: *processed_size,
             total_bytes: total_size,
             current_file: format!("Adding: {}", input.display()),
+            speed_bps: speed,
+            eta_seconds: eta,
         }));
         
         *processed_size += calculate_path_size(input);
@@ -171,6 +195,7 @@ fn pack_multiple_tar(
 }
 
 /// Pack multiple files into a compressed tar archive
+#[instrument(skip(ui_sender, cancel_flag, progress_tracker, options))]
 fn pack_multiple_tar_compressed(
     inputs: &[PathBuf],
     output: &PathBuf,
@@ -179,19 +204,23 @@ fn pack_multiple_tar_compressed(
     total_size: u64,
     options: flux_lib::archive::PackOptions,
     cancel_flag: &Arc<AtomicBool>,
+    progress_tracker: &mut ProgressTracker,
 ) -> Result<(), Box<dyn std::error::Error>> {
     
     // First create uncompressed tar in memory or temp file
     let temp_tar = output.with_extension("tar.tmp");
     
     // Pack to temporary tar file
-    pack_multiple_tar(inputs, &temp_tar, ui_sender, processed_size, total_size, options.follow_symlinks, cancel_flag)?;
+    pack_multiple_tar(inputs, &temp_tar, ui_sender, processed_size, total_size, options.follow_symlinks, cancel_flag, progress_tracker)?;
     
     // Now compress the tar file
+    let (speed, eta) = progress_tracker.update(*processed_size, total_size);
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: *processed_size,
         total_bytes: total_size,
         current_file: "Compressing archive...".to_string(),
+        speed_bps: speed,
+        eta_seconds: eta,
     }));
     
     // Use pack_with_strategy to compress the tar file
@@ -210,6 +239,7 @@ fn pack_multiple_tar_compressed(
 }
 
 /// Pack multiple files into a ZIP archive
+#[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
 fn pack_multiple_zip(
     inputs: &[PathBuf],
     output: &PathBuf,
@@ -218,6 +248,7 @@ fn pack_multiple_zip(
     total_size: u64,
     follow_symlinks: bool,
     cancel_flag: &Arc<AtomicBool>,
+    progress_tracker: &mut ProgressTracker,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // For ZIP, we'll create a temporary directory and copy all files there,
     // then use flux_lib to pack them
@@ -236,10 +267,13 @@ fn pack_multiple_zip(
             return Err("Operation cancelled".into());
         }
         
+        let (speed, eta) = progress_tracker.update(*processed_size, total_size);
         let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
             processed_bytes: *processed_size,
             total_bytes: total_size,
             current_file: format!("Preparing: {}", input.display()),
+            speed_bps: speed,
+            eta_seconds: eta,
         }));
         
         let dest_name = input.file_name()
@@ -257,10 +291,13 @@ fn pack_multiple_zip(
     }
     
     // Now use flux_lib to pack the temp directory
+    let (speed, eta) = progress_tracker.update(*processed_size, total_size);
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: *processed_size,
         total_bytes: total_size,
         current_file: "Creating ZIP archive...".to_string(),
+        speed_bps: speed,
+        eta_seconds: eta,
     }));
     
     flux_lib::archive::zip::pack_zip_with_options(temp_path, output, follow_symlinks)?;
@@ -269,6 +306,7 @@ fn pack_multiple_zip(
 }
 
 /// Recursively copy a directory
+#[instrument]
 fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
     
@@ -290,6 +328,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), Box<dyn std::e
 }
 
 /// Find the common base directory for a set of paths
+#[instrument]
 fn find_common_base_dir(paths: &[PathBuf]) -> Option<PathBuf> {
     if paths.is_empty() {
         return None;
@@ -307,6 +346,7 @@ fn find_common_base_dir(paths: &[PathBuf]) -> Option<PathBuf> {
 }
 
 /// Handle extract task in background thread
+#[instrument(skip(ui_sender, cancel_flag))]
 pub fn handle_extract_task(
     archive: PathBuf,
     output_dir: PathBuf,
@@ -317,17 +357,21 @@ pub fn handle_extract_task(
     use std::time::Instant;
     
     // Send initial status
+    info!(archive = %archive.display(), output_dir = %output_dir.display(), "Starting extraction");
     let _ = ui_sender.send(ToUi::Log(format!("Starting extraction: {} to {}", archive.display(), output_dir.display())));
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: 0,
         total_bytes: 0,
         current_file: "Opening archive...".to_string(),
+        speed_bps: 0.0,
+        eta_seconds: None,
     }));
     
-    // Create extractor
-    let extractor = match flux_lib::archive::create_extractor(&archive) {
+    // Create secure extractor
+    let extractor = match flux_lib::archive::create_secure_extractor(&archive) {
         Ok(ex) => ex,
         Err(e) => {
+            error!(error = %e, "Failed to create extractor");
             let _ = ui_sender.send(ToUi::Log(format!("Failed to create extractor: {}", e)));
             let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
             return;
@@ -339,6 +383,8 @@ pub fn handle_extract_task(
         processed_bytes: 0,
         total_bytes: 0,
         current_file: "Reading archive contents...".to_string(),
+        speed_bps: 0.0,
+        eta_seconds: None,
     }));
     
     let entries: Vec<_> = match extractor.entries(&archive) {
@@ -357,12 +403,15 @@ pub fn handle_extract_task(
     let total_count = entries.len();
     let mut processed_size: u64 = 0;
     let mut processed_count = 0;
+    let mut progress_tracker = ProgressTracker::new();
     
     // Send initial progress with total info
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: 0,
         total_bytes: total_size,
         current_file: format!("Extracting {} files...", total_count),
+        speed_bps: 0.0,
+        eta_seconds: None,
     }));
     
     // Extract options
@@ -389,6 +438,7 @@ pub fn handle_extract_task(
         
         // Send progress update if enough time has passed or for every file if there are few files
         if last_update.elapsed() > update_interval || total_count < 50 {
+            let (speed, eta) = progress_tracker.update(processed_size, total_size);
             let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
                 processed_bytes: processed_size,
                 total_bytes: total_size,
@@ -400,12 +450,15 @@ pub fn handle_extract_task(
                         .and_then(|n| n.to_str())
                         .unwrap_or_else(|| entry.path.to_str().unwrap_or("..."))
                 ),
+                speed_bps: speed,
+                eta_seconds: eta,
             }));
             last_update = Instant::now();
         }
         
         // Extract the entry
         if let Err(e) = extractor.extract_entry(&archive, entry, &output_dir, extract_options.clone()) {
+            error!(path = %entry.path.display(), error = %e, "Failed to extract file");
             let _ = ui_sender.send(ToUi::Log(format!("Failed to extract {}: {}", entry.path.display(), e)));
             let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(
                 format!("Failed to extract {}: {}", entry.path.display(), e)
@@ -417,28 +470,30 @@ pub fn handle_extract_task(
     }
     
     // Send completion
+    let (speed, _) = progress_tracker.update(total_size, total_size);
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: total_size,
         total_bytes: total_size,
         current_file: format!("Successfully extracted {} files", total_count),
+        speed_bps: speed,
+        eta_seconds: None,
     }));
+    info!(files = total_count, "Extraction completed");
     let _ = ui_sender.send(ToUi::Log(format!("Extraction completed: {} files extracted", total_count)));
     let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
 }
 
 fn main() -> Result<(), eframe::Error> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    // Initialize tracing without GUI integration first (will be updated when app starts)
+    crate::logging::init_tracing(None);
     
-    log::info!("Starting Flux GUI application");
+    info!("Starting Flux GUI application");
     
     // Set up eframe options with icon
     let icon_bytes = include_bytes!("../assets/icon.png");
     let icon = eframe::icon_data::from_png_bytes(icon_bytes)
         .unwrap_or_else(|e| {
-            log::warn!("Failed to load icon: {}", e);
+            tracing::warn!("Failed to load icon: {}", e);
             Default::default()
         });
     

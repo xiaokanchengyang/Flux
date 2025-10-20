@@ -1,159 +1,16 @@
-//! Flux GUI Application structure and logic
+//! UI rendering and update logic for the Flux GUI application
 
 use eframe::egui;
-use egui_notify::Toasts;
-use crossbeam_channel::{Receiver, Sender};
-use std::{thread, path::PathBuf, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::SystemTime};
+use std::time::SystemTime;
+use tracing::info;
 
-use crate::task::{TaskCommand, ToUi, TaskResult};
+use crate::task::{ToUi, TaskResult};
 use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction};
-
-/// Application view states
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AppView {
-    /// Welcome/idle view
-    Welcome,
-    /// Packing files into archive view
-    Packing,
-    /// Extracting archive view
-    Extracting,
-}
-
-/// Main application structure
-pub struct FluxApp {
-    /// Current view
-    view: AppView,
-    /// Sender for commands to background thread
-    task_sender: Sender<TaskCommand>,
-    /// Receiver for messages from background thread
-    ui_receiver: Receiver<ToUi>,
-    /// Handle to the background thread
-    _task_handle: Option<thread::JoinHandle<()>>,
-    /// Current progress (0.0 to 1.0)
-    current_progress: f32,
-    /// Status text to display
-    status_text: String,
-    /// Current file being processed
-    current_file: String,
-    /// Bytes processed
-    processed_bytes: u64,
-    /// Total bytes to process
-    total_bytes: u64,
-    /// Files to process
-    input_files: Vec<PathBuf>,
-    /// Output path
-    output_path: Option<PathBuf>,
-    /// Selected compression format for packing
-    compression_format: String,
-    /// Is task running
-    is_busy: bool,
-    /// Toast notifications
-    toasts: Toasts,
-    /// Cancel flag for current task
-    cancel_flag: Option<Arc<AtomicBool>>,
-    /// Log messages
-    logs: Vec<String>,
-    /// Show log panel
-    show_log_panel: bool,
-}
+use super::{FluxApp, AppView};
 
 impl FluxApp {
-    /// Create a new application instance
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Create channels for communication
-        let (task_sender, task_receiver) = crossbeam_channel::unbounded::<TaskCommand>();
-        let (ui_sender, ui_receiver) = crossbeam_channel::unbounded::<ToUi>();
-        
-        // Spawn background thread
-        let task_handle = thread::spawn(move || {
-            // Background thread main loop
-            loop {
-                match task_receiver.recv() {
-                    Ok(command) => {
-                        match command {
-                            TaskCommand::Pack { inputs, output, options, cancel_flag } => {
-                                crate::handle_pack_task(inputs, output, options, cancel_flag, &ui_sender);
-                            }
-                            TaskCommand::Extract { archive, output_dir, cancel_flag } => {
-                                crate::handle_extract_task(archive, output_dir, cancel_flag, &ui_sender);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // Channel closed, exit thread
-                        break;
-                    }
-                }
-            }
-        });
-        
-        Self {
-            view: AppView::Welcome,
-            task_sender,
-            ui_receiver,
-            _task_handle: Some(task_handle),
-            current_progress: 0.0,
-            status_text: "Ready".to_string(),
-            current_file: String::new(),
-            processed_bytes: 0,
-            total_bytes: 0,
-            input_files: Vec::new(),
-            output_path: None,
-            compression_format: "tar.zst".to_string(),
-            is_busy: false,
-            toasts: Toasts::default(),
-            cancel_flag: None,
-            logs: Vec::new(),
-            show_log_panel: false,
-        }
-    }
-    
-    /// Analyze dropped files and switch view accordingly
-    fn analyze_dropped_files(&mut self, files: Vec<PathBuf>) {
-        if files.is_empty() {
-            return;
-        }
-        
-        // Check if it's a single archive file
-        if files.len() == 1 {
-            let file = &files[0];
-            let file_name = file.file_name().map(|n| n.to_string_lossy().to_string());
-            
-            // Check for common archive extensions
-            if let Some(ext) = file.extension() {
-                let ext_str = ext.to_string_lossy().to_lowercase();
-                if matches!(ext_str.as_str(), "zip" | "tar" | "gz" | "zst" | "xz" | "7z" | "br") {
-                    // Switch to extracting view
-                    self.view = AppView::Extracting;
-                    self.input_files = files;
-                    self.toasts.info(format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")));
-                    return;
-                }
-            }
-            
-            // Also check for compound extensions like .tar.gz
-            if let Some(name) = &file_name {
-                let name_lower = name.to_lowercase();
-                if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.zst") || 
-                   name_lower.ends_with(".tar.xz") || name_lower.ends_with(".tar.br") {
-                    // Switch to extracting view
-                    self.view = AppView::Extracting;
-                    self.input_files = files;
-                    self.toasts.info(format!("Ready to extract: {}", name));
-                    return;
-                }
-            }
-        }
-        
-        // Multiple files, single non-archive file, or directories - switch to packing view
-        self.view = AppView::Packing;
-        let count = files.len();
-        self.input_files = files;
-        self.toasts.info(format!("Ready to pack {} file{}", count, if count == 1 { "" } else { "s" }));
-    }
-    
     /// Draw the welcome view
-    fn draw_welcome_view(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+    pub(super) fn draw_welcome_view(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(50.0);
             ui.heading("Welcome to Flux");
@@ -212,142 +69,29 @@ impl FluxApp {
         });
     }
     
-    /// Cancel the current task
-    fn cancel_task(&mut self) {
-        if let Some(flag) = &self.cancel_flag {
-            flag.store(true, Ordering::SeqCst);
-            self.toasts.info("Cancelling task...");
+    /// Process incoming messages and update UI state
+    pub(super) fn process_messages(&mut self) {
+        // Process log messages from tracing
+        if let Some(log_receiver) = &self.log_receiver {
+            while let Ok(log_msg) = log_receiver.try_recv() {
+                // Add timestamp to log message
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let secs = now.as_secs() % 86400; // seconds in current day
+                let hours = secs / 3600;
+                let mins = (secs % 3600) / 60;
+                let secs = secs % 60;
+                let millis = now.subsec_millis();
+                
+                self.logs.push(format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, log_msg));
+                
+                // Keep log size reasonable (max 1000 entries)
+                if self.logs.len() > 1000 {
+                    self.logs.drain(0..100); // Remove oldest 100 entries
+                }
+            }
         }
-    }
-    
-    /// Reset to welcome view
-    fn reset_to_welcome(&mut self) {
-        self.view = AppView::Welcome;
-        self.input_files.clear();
-        self.output_path = None;
-        self.current_progress = 0.0;
-        self.status_text = "Ready".to_string();
-        self.cancel_flag = None;
-    }
-    
-    /// Start the task based on current view and inputs
-    fn start_task(&mut self) {
-        match self.view {
-            AppView::Packing => {
-                if let Some(output) = &self.output_path {
-                    // Validate output path
-                    if let Some(parent) = output.parent() {
-                        if !parent.exists() {
-                            self.toasts.error("Output directory does not exist");
-                            return;
-                        }
-                    }
-                    
-                    // Determine the algorithm based on the selected compression format
-                    let algorithm = match self.compression_format.as_str() {
-                        "tar.gz" => Some("gz".to_string()),
-                        "tar.zst" => Some("zst".to_string()),
-                        "tar.xz" => Some("xz".to_string()),
-                        "zip" => Some("zip".to_string()),
-                        _ => None,
-                    };
-                    
-                    let options = flux_lib::archive::PackOptions {
-                        smart: false, // Disable smart mode since user explicitly selected format
-                        algorithm,
-                        level: None,
-                        threads: None,
-                        force_compress: false,
-                        follow_symlinks: false,
-                    };
-                    
-                    // Create cancel flag
-                    let cancel_flag = Arc::new(AtomicBool::new(false));
-                    self.cancel_flag = Some(cancel_flag.clone());
-                    
-                    let command = TaskCommand::Pack {
-                        inputs: self.input_files.clone(),
-                        output: output.clone(),
-                        options,
-                        cancel_flag,
-                    };
-                    
-                    if self.task_sender.send(command).is_ok() {
-                        self.is_busy = true;
-                        self.current_progress = 0.0;
-                        self.status_text = "Starting pack operation...".to_string();
-                        self.toasts.info("Starting to create archive...");
-                    } else {
-                        self.toasts.error("Failed to start task: background thread not responding");
-                    }
-                } else {
-                    self.toasts.error("Please select an output path first");
-                }
-            }
-            AppView::Extracting => {
-                if let (Some(archive), Some(output_dir)) = (self.input_files.first(), &self.output_path) {
-                    // Validate archive exists
-                    if !archive.exists() {
-                        self.toasts.error("Archive file not found");
-                        return;
-                    }
-                    
-                    // Validate output directory exists
-                    if !output_dir.exists() {
-                        self.toasts.error("Output directory does not exist");
-                        return;
-                    }
-                    
-                    // Create cancel flag
-                    let cancel_flag = Arc::new(AtomicBool::new(false));
-                    self.cancel_flag = Some(cancel_flag.clone());
-                    
-                    let command = TaskCommand::Extract {
-                        archive: archive.clone(),
-                        output_dir: output_dir.clone(),
-                        cancel_flag,
-                    };
-                    
-                    if self.task_sender.send(command).is_ok() {
-                        self.is_busy = true;
-                        self.current_progress = 0.0;
-                        self.status_text = "Starting extraction...".to_string();
-                        self.toasts.info("Starting extraction...");
-                    } else {
-                        self.toasts.error("Failed to start task: background thread not responding");
-                    }
-                } else {
-                    self.toasts.error("Please select an archive and output directory first");
-                }
-            }
-            AppView::Welcome => {}
-        }
-    }
-}
-
-impl eframe::App for FluxApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Update window title based on current state
-        let title = match (self.view, self.is_busy) {
-            (AppView::Packing, true) => "Flux - Packing...",
-            (AppView::Packing, false) => "Flux - Pack Files",
-            (AppView::Extracting, true) => "Flux - Extracting...",
-            (AppView::Extracting, false) => "Flux - Extract Archive",
-            (AppView::Welcome, _) => "Flux - File Archiver",
-        };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_string()));
-        // Check for dropped files
-        ctx.input(|i| {
-            if !i.raw.dropped_files.is_empty() {
-                let mut files = Vec::new();
-                for dropped in &i.raw.dropped_files {
-                    if let Some(path) = &dropped.path {
-                        files.push(path.clone());
-                    }
-                }
-                self.analyze_dropped_files(files);
-            }
-        });
         
         // Process all pending UI messages
         while let Ok(msg) = self.ui_receiver.try_recv() {
@@ -357,6 +101,8 @@ impl eframe::App for FluxApp {
                     self.current_file = update.current_file.clone();
                     self.processed_bytes = update.processed_bytes;
                     self.total_bytes = update.total_bytes;
+                    self.current_speed_bps = update.speed_bps;
+                    self.eta_seconds = update.eta_seconds;
                     
                     // Format status text with size information
                     let processed_mb = update.processed_bytes as f64 / (1024.0 * 1024.0);
@@ -364,7 +110,16 @@ impl eframe::App for FluxApp {
                     
                     if update.total_bytes > 0 {
                         let percent = (self.current_progress * 100.0) as u32;
-                        self.status_text = format!("{:.1} / {:.1} MB ({}%)", processed_mb, total_mb, percent);
+                        let speed_str = crate::progress_tracker::format_speed(update.speed_bps);
+                        
+                        if let Some(eta_seconds) = update.eta_seconds {
+                            let eta_str = crate::progress_tracker::format_duration(eta_seconds);
+                            self.status_text = format!("{:.1} / {:.1} MB ({}%) - {} - ETA: {}", 
+                                processed_mb, total_mb, percent, speed_str, eta_str);
+                        } else {
+                            self.status_text = format!("{:.1} / {:.1} MB ({}%) - {}", 
+                                processed_mb, total_mb, percent, speed_str);
+                        }
                     } else {
                         self.status_text = "Processing...".to_string();
                     }
@@ -376,6 +131,7 @@ impl eframe::App for FluxApp {
                         TaskResult::Success => {
                             self.status_text = "Task completed successfully!".to_string();
                             self.current_progress = 1.0;
+                            info!("Task completed successfully");
                             
                             // Add success notification
                             let message = match self.view {
@@ -388,6 +144,7 @@ impl eframe::App for FluxApp {
                         TaskResult::Error(err) => {
                             self.status_text = format!("Error: {}", err);
                             self.current_progress = 0.0;
+                            info!("Task failed: {}", err);
                             
                             // Add error notification
                             self.toasts.error(format!("Operation failed: {}", err));
@@ -395,6 +152,7 @@ impl eframe::App for FluxApp {
                         TaskResult::Cancelled => {
                             self.status_text = "Operation cancelled".to_string();
                             self.current_progress = 0.0;
+                            info!("Task cancelled");
                             
                             // Add info notification
                             self.toasts.info("Operation cancelled by user");
@@ -421,6 +179,36 @@ impl eframe::App for FluxApp {
                 }
             }
         }
+    }
+}
+
+impl eframe::App for FluxApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Update window title based on current state
+        let title = match (self.view, self.is_busy) {
+            (AppView::Packing, true) => "Flux - Packing...",
+            (AppView::Packing, false) => "Flux - Pack Files",
+            (AppView::Extracting, true) => "Flux - Extracting...",
+            (AppView::Extracting, false) => "Flux - Extract Archive",
+            (AppView::Welcome, _) => "Flux - File Archiver",
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_string()));
+        
+        // Check for dropped files
+        ctx.input(|i| {
+            if !i.raw.dropped_files.is_empty() {
+                let mut files = Vec::new();
+                for dropped in &i.raw.dropped_files {
+                    if let Some(path) = &dropped.path {
+                        files.push(path.clone());
+                    }
+                }
+                self.analyze_dropped_files(files);
+            }
+        });
+        
+        // Process incoming messages
+        self.process_messages();
         
         // Main UI
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -448,6 +236,20 @@ impl eframe::App for FluxApp {
                         ui.weak("Processing:");
                         ui.monospace(&self.current_file);
                     });
+                    
+                    // Show speed and ETA on a separate line
+                    if self.current_speed_bps > 0.0 {
+                        ui.horizontal(|ui| {
+                            ui.weak("Speed:");
+                            ui.label(crate::progress_tracker::format_speed(self.current_speed_bps));
+                            
+                            if let Some(eta) = self.eta_seconds {
+                                ui.separator();
+                                ui.weak("ETA:");
+                                ui.label(crate::progress_tracker::format_duration(eta));
+                            }
+                        });
+                    }
                 }
                 ui.separator();
                 ui.add_space(10.0);

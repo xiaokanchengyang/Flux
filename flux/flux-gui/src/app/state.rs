@@ -8,6 +8,7 @@ use crate::task::TaskCommand;
 use crate::task::ToUi;
 use crate::theme::FluxTheme;
 use crate::layout::Sidebar;
+use crate::views::BrowserState;
 use serde::{Deserialize, Serialize};
 
 /// Application view states
@@ -21,6 +22,8 @@ pub enum AppView {
     Extracting,
     /// Syncing/incremental backup view
     Syncing,
+    /// Browsing archive contents
+    Browsing,
 }
 
 /// Main application structure
@@ -85,6 +88,8 @@ pub struct FluxApp {
     pub(super) show_about_dialog: bool,
     /// Sidebar navigation
     pub(super) sidebar: Sidebar,
+    /// Browser state when viewing archive contents
+    pub(super) browser_state: Option<BrowserState>,
 }
 
 /// Persistent application state

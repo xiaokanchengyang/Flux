@@ -164,6 +164,7 @@ impl FluxApp {
                     let command = TaskCommand::Extract {
                         archive: archive.clone(),
                         output_dir: output_dir.clone(),
+                        hoist: self.extract_hoist,
                         cancel_flag,
                     };
                     

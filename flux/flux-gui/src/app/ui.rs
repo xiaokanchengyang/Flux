@@ -417,6 +417,7 @@ impl eframe::App for FluxApp {
                                 &archive_path,
                                 &self.output_path,
                                 self.is_busy,
+                                &mut self.extract_hoist,
                             ) {
                                 match action {
                                     ExtractingAction::SelectOutputDir => {

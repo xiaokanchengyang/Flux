@@ -353,6 +353,7 @@ fn find_common_base_dir(paths: &[PathBuf]) -> Option<PathBuf> {
 pub fn handle_extract_task(
     archive: PathBuf,
     output_dir: PathBuf,
+    hoist: bool,
     cancel_flag: Arc<AtomicBool>,
     ui_sender: &Sender<ToUi>,
 ) {
@@ -470,6 +471,20 @@ pub fn handle_extract_task(
         }
         
         processed_size += entry.size;
+    }
+    
+    // Perform directory hoisting if requested
+    if hoist {
+        info!("Checking for single directory to hoist...");
+        let _ = ui_sender.send(ToUi::Log("Checking for single directory to hoist...".to_string()));
+        if let Err(e) = flux_lib::archive::hoist_single_directory(&output_dir) {
+            info!("Directory hoisting failed: {}", e);
+            let _ = ui_sender.send(ToUi::Log(format!("Directory hoisting failed: {}", e)));
+            // We don't fail the entire operation if hoisting fails
+        } else {
+            info!("Directory hoisting completed");
+            let _ = ui_sender.send(ToUi::Log("Directory hoisting completed successfully".to_string()));
+        }
     }
     
     // Send completion

@@ -44,8 +44,8 @@ impl FluxApp {
                             TaskCommand::Pack { inputs, output, options, cancel_flag } => {
                                 crate::handle_pack_task(inputs, output, options, cancel_flag, &ui_sender);
                             }
-                            TaskCommand::Extract { archive, output_dir, cancel_flag } => {
-                                crate::handle_extract_task(archive, output_dir, cancel_flag, &ui_sender);
+                            TaskCommand::Extract { archive, output_dir, hoist, cancel_flag } => {
+                                crate::handle_extract_task(archive, output_dir, hoist, cancel_flag, &ui_sender);
                             }
                             TaskCommand::Sync { source_dir, target_archive, old_manifest, options, cancel_flag } => {
                                 crate::handle_sync_task(source_dir, target_archive, old_manifest, options, cancel_flag, &ui_sender);
@@ -92,6 +92,7 @@ impl FluxApp {
             show_about_dialog: false,
             sidebar: crate::layout::Sidebar::default(),
             browser_state: None,
+            extract_hoist: false,
         }
     }
 }

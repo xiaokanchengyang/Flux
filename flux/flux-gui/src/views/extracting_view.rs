@@ -11,6 +11,7 @@ pub fn draw_extracting_view(
     archive_path: &Option<PathBuf>,
     output_dir: &Option<PathBuf>,
     is_busy: bool,
+    hoist_enabled: &mut bool,
 ) -> Option<ExtractingAction> {
     let mut action = None;
     
@@ -120,6 +121,20 @@ pub fn draw_extracting_view(
     ui.horizontal(|ui| {
         ui.label("ℹ️");
         ui.weak("Files will be extracted to the selected directory");
+    });
+
+    // Smart directory hoisting option
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        ui.checkbox(hoist_enabled, "");
+        ui.label("Smart folder extraction");
+        if ui.small_button("?").on_hover_text(
+            "If the archive contains a single folder at the root level, \
+            extract its contents directly to the output directory, \
+            eliminating redundant nested folders."
+        ).clicked() {
+            // Do nothing, just showing tooltip
+        }
     });
 
     ui.add_space(20.0);

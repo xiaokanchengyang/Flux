@@ -83,6 +83,7 @@ pub fn extract_interactive(
     output_dir: &Path,
     strip_components: Option<usize>,
     show_progress: bool,
+    hoist: bool,
 ) -> Result<()> {
     // Check if it's a 7z archive (which doesn't support interactive extraction)
     let ext = archive
@@ -97,8 +98,9 @@ pub fn extract_interactive(
             skip: true,
             rename: false,
             strip_components,
+            hoist,
         };
-        return extract_with_options(archive, output_dir, options, show_progress);
+        return extract_with_options(archive, output_dir, options, show_progress, hoist);
     }
 
     // Create the extractor
@@ -257,6 +259,14 @@ pub fn extract_interactive(
     if failed > 0 {
         Err(FluxError::PartialFailure { count: failed as u32 }.into())
     } else {
+        // Perform directory hoisting if requested
+        if hoist {
+            info!("Checking for single directory to hoist...");
+            if let Err(e) = flux_lib::archive::hoist_single_directory(output_dir) {
+                info!("Directory hoisting failed: {}", e);
+                // We don't fail the entire operation if hoisting fails
+            }
+        }
         Ok(())
     }
 }
@@ -267,6 +277,7 @@ pub fn extract_with_options(
     output_dir: &Path,
     options: ExtractOptions,
     _show_progress: bool,
+    _hoist: bool,
 ) -> Result<()> {
     // For backward compatibility, use the old extraction method
     flux_lib::archive::extract_with_options(archive, output_dir, options)?;

@@ -6,7 +6,7 @@ use tempfile::TempDir;
 fn test_smart_strategy_for_text_files() {
     // Set environment variable to skip config loading
     std::env::set_var("FLUX_NO_CONFIG", "1");
-    
+
     let temp_dir = TempDir::new().unwrap();
 
     // Test various text file extensions
@@ -125,16 +125,19 @@ fn test_smart_strategy_for_compressed_directory() {
 fn test_entropy_detection() {
     // Set environment variable to skip config loading
     std::env::set_var("FLUX_NO_CONFIG", "1");
-    
+
     let temp_dir = TempDir::new().unwrap();
 
     // Create a file with high entropy (random data)
     let random_file = temp_dir.path().join("random.bin");
     let random_data: Vec<u8> = (0..1024).map(|i| (i * 7 + 13) as u8).collect();
     fs::write(&random_file, random_data).unwrap();
-    
+
     println!("File: {:?}", random_file);
-    println!("File size: {} bytes", fs::metadata(&random_file).unwrap().len());
+    println!(
+        "File size: {} bytes",
+        fs::metadata(&random_file).unwrap().len()
+    );
 
     // Even without compressed extension, high entropy should be detected
     let strategy = CompressionStrategy::smart(&random_file, None, None);
@@ -152,15 +155,15 @@ fn test_adjust_for_parallel() {
 
     // Test Zstd with different file sizes
     strategy.algorithm = Algorithm::Zstd;
-    
+
     // Small file
     strategy.adjust_for_parallel(5 * 1024 * 1024); // 5MB
     assert_eq!(strategy.threads, 1);
-    
+
     // Medium file
     strategy.adjust_for_parallel(50 * 1024 * 1024); // 50MB
     assert!(strategy.threads >= 2);
-    
+
     // Large file
     strategy.adjust_for_parallel(200 * 1024 * 1024); // 200MB
     assert!(strategy.threads >= 4);

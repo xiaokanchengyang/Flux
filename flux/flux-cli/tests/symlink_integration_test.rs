@@ -1,7 +1,6 @@
 #[cfg(unix)]
 mod symlink_integration_tests {
     use assert_cmd::Command;
-    use predicates::prelude::*;
     use std::fs;
     use std::os::unix::fs as unix_fs;
     use tempfile::TempDir;
@@ -40,7 +39,7 @@ mod symlink_integration_tests {
             .success();
 
         // Verify: link should be a regular file with target's content
-        let link_path = extract_dir.join("link.txt");
+        let link_path = extract_dir.join("source").join("link.txt");
         assert!(link_path.exists());
         assert!(!link_path
             .symlink_metadata()
@@ -83,7 +82,7 @@ mod symlink_integration_tests {
             .success();
 
         // Verify: link should still be a symlink
-        let link_path = extract_dir.join("link.txt");
+        let link_path = extract_dir.join("source").join("link.txt");
         assert!(link_path.exists());
         assert!(link_path
             .symlink_metadata()
@@ -237,7 +236,7 @@ mod symlink_integration_tests {
             .success();
 
         // Verify permissions were preserved
-        let extracted_executable = extract_dir.join("executable.sh");
+        let extracted_executable = extract_dir.join("source").join("executable.sh");
         let extracted_perms = fs::metadata(&extracted_executable).unwrap().permissions();
         assert_eq!(extracted_perms.mode() & 0o777, 0o755);
     }

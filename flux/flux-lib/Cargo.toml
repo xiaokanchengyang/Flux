@@ -10,7 +10,6 @@ description = "Core library for flux - a cross-platform file archiver with intel
 readme = "../README.md"
 keywords = ["compression", "archive", "tar", "zip", "zstd"]
 categories = ["compression", "filesystem", "encoding"]
-description = "Core library for flux - a cross-platform file archiver and compressor"
 
 [dependencies]
 tar = { workspace = true }

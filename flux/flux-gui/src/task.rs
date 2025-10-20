@@ -1,6 +1,7 @@
 //! Background task handling for flux-gui
 
 use std::path::PathBuf;
+use std::sync::{Arc, atomic::AtomicBool};
 
 /// Commands sent from UI to background thread
 pub enum TaskCommand {
@@ -12,6 +13,8 @@ pub enum TaskCommand {
         output: PathBuf,
         /// Packing options
         options: flux_lib::archive::PackOptions,
+        /// Cancel flag
+        cancel_flag: Arc<AtomicBool>,
     },
     /// Extract an archive
     Extract {
@@ -19,6 +22,8 @@ pub enum TaskCommand {
         archive: PathBuf,
         /// Directory to extract to
         output_dir: PathBuf,
+        /// Cancel flag
+        cancel_flag: Arc<AtomicBool>,
     },
 }
 
@@ -40,6 +45,8 @@ pub enum TaskResult {
     Success,
     /// Task failed with error message
     Error(String),
+    /// Task was cancelled by user
+    Cancelled,
 }
 
 /// Messages sent from background thread to UI
@@ -49,4 +56,6 @@ pub enum ToUi {
     Progress(ProgressUpdate),
     /// Task finished
     Finished(TaskResult),
+    /// Log message
+    Log(String),
 }

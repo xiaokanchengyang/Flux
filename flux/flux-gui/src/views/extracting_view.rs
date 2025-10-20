@@ -121,11 +121,12 @@ pub fn draw_extracting_view(
             action = Some(ExtractingAction::StartExtracting);
         }
 
-        // Cancel button
-        if ui.add_enabled(!is_busy, egui::Button::new("Cancel")
+        // Cancel button - enabled when busy (cancels task) or when not busy (clears selection)
+        let cancel_text = if is_busy { "Cancel Task" } else { "Clear" };
+        if ui.add(egui::Button::new(cancel_text)
                 .min_size(egui::vec2(80.0, 35.0)))
             .clicked() {
-            action = Some(ExtractingAction::Clear);
+            action = Some(if is_busy { ExtractingAction::Cancel } else { ExtractingAction::Clear });
         }
         
         ui.add_space(20.0);
@@ -151,4 +152,6 @@ pub enum ExtractingAction {
     BrowseArchive,
     /// Clear current selection
     Clear,
+    /// Cancel the current operation
+    Cancel,
 }

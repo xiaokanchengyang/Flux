@@ -63,14 +63,16 @@ pub fn draw_packing_view(
     // Compression format selection using ComboBox
     ui.horizontal(|ui| {
         ui.label("Archive format:");
-        egui::ComboBox::from_label("")
-            .selected_text(compression_format.as_str())
-            .show_ui(ui, |ui| {
-                ui.selectable_value(compression_format, "tar.gz".to_string(), "tar.gz");
-                ui.selectable_value(compression_format, "tar.zst".to_string(), "tar.zst (recommended)");
-                ui.selectable_value(compression_format, "tar.xz".to_string(), "tar.xz");
-                ui.selectable_value(compression_format, "zip".to_string(), "zip");
-            });
+        ui.add_enabled_ui(!is_busy, |ui| {
+            egui::ComboBox::from_label("")
+                .selected_text(compression_format.as_str())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(compression_format, "tar.gz".to_string(), "tar.gz");
+                    ui.selectable_value(compression_format, "tar.zst".to_string(), "tar.zst (recommended)");
+                    ui.selectable_value(compression_format, "tar.xz".to_string(), "tar.xz");
+                    ui.selectable_value(compression_format, "zip".to_string(), "zip");
+                });
+        });
     });
 
     ui.add_space(10.0);
@@ -104,11 +106,12 @@ pub fn draw_packing_view(
             action = Some(PackingAction::StartPacking);
         }
 
-        // Cancel button
-        if ui.add_enabled(!is_busy, egui::Button::new("Cancel")
+        // Cancel button - enabled when busy (cancels task) or when not busy (clears selection)
+        let cancel_text = if is_busy { "Cancel Task" } else { "Clear" };
+        if ui.add(egui::Button::new(cancel_text)
                 .min_size(egui::vec2(80.0, 35.0)))
             .clicked() {
-            action = Some(PackingAction::ClearAll);
+            action = Some(if is_busy { PackingAction::Cancel } else { PackingAction::ClearAll });
         }
         
         ui.add_space(20.0);
@@ -136,4 +139,6 @@ pub enum PackingAction {
     StartPacking,
     /// Clear all selections
     ClearAll,
+    /// Cancel the current operation
+    Cancel,
 }

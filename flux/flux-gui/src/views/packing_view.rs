@@ -60,25 +60,34 @@ pub fn draw_packing_view(
 
     ui.add_space(20.0);
 
-    // Compression format selection
+    // Compression format selection using ComboBox
     ui.horizontal(|ui| {
         ui.label("Archive format:");
-        ui.radio_value(compression_format, "tar.gz".to_string(), "tar.gz");
-        ui.radio_value(compression_format, "tar.zst".to_string(), "tar.zst (recommended)");
-        ui.radio_value(compression_format, "tar.xz".to_string(), "tar.xz");
-        ui.radio_value(compression_format, "zip".to_string(), "zip");
+        egui::ComboBox::from_label("")
+            .selected_text(compression_format.as_str())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(compression_format, "tar.gz".to_string(), "tar.gz");
+                ui.selectable_value(compression_format, "tar.zst".to_string(), "tar.zst (recommended)");
+                ui.selectable_value(compression_format, "tar.xz".to_string(), "tar.xz");
+                ui.selectable_value(compression_format, "zip".to_string(), "zip");
+            });
     });
 
     ui.add_space(10.0);
 
     // Output path selection
     ui.horizontal(|ui| {
-        ui.label("Save as:");
+        ui.label("Output path:");
+        
+        // Display current output path or placeholder text
         let output_text = output_path.as_ref()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "Click to select output location...".to_string());
+            .unwrap_or_else(|| "No output path selected".to_string());
         
-        if ui.button(&output_text).clicked() && !is_busy {
+        ui.label(&output_text);
+        
+        // Browse button to select output location
+        if ui.add_enabled(!is_busy, egui::Button::new("Browse...")).clicked() {
             action = Some(PackingAction::SelectOutput);
         }
     });
@@ -87,24 +96,27 @@ pub fn draw_packing_view(
 
     // Action buttons
     ui.horizontal(|ui| {
-        // Add more files button
-        if ui.add_enabled(!is_busy, egui::Button::new("➕ Add More Files"))
-            .clicked() {
-            action = Some(PackingAction::AddMoreFiles);
-        }
-
         // Start packing button
         let can_start = !is_busy && !input_files.is_empty() && output_path.is_some();
-        if ui.add_enabled(can_start, egui::Button::new("🚀 Start Packing")
-                .min_size(egui::vec2(120.0, 30.0)))
+        if ui.add_enabled(can_start, egui::Button::new("Start Packing")
+                .min_size(egui::vec2(120.0, 35.0)))
             .clicked() {
             action = Some(PackingAction::StartPacking);
         }
 
-        // Clear button
-        if ui.add_enabled(!is_busy, egui::Button::new("🗑️ Clear All"))
+        // Cancel button
+        if ui.add_enabled(!is_busy, egui::Button::new("Cancel")
+                .min_size(egui::vec2(80.0, 35.0)))
             .clicked() {
             action = Some(PackingAction::ClearAll);
+        }
+        
+        ui.add_space(20.0);
+        
+        // Add more files button
+        if ui.add_enabled(!is_busy, egui::Button::new("➕ Add More Files"))
+            .clicked() {
+            action = Some(PackingAction::AddMoreFiles);
         }
     });
 

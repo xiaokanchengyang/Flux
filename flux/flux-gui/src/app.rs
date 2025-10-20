@@ -190,9 +190,18 @@ impl FluxApp {
         match self.view {
             AppView::Packing => {
                 if let Some(output) = &self.output_path {
+                    // Determine the algorithm based on the selected compression format
+                    let algorithm = match self.compression_format.as_str() {
+                        "tar.gz" => Some("gz".to_string()),
+                        "tar.zst" => Some("zst".to_string()),
+                        "tar.xz" => Some("xz".to_string()),
+                        "zip" => Some("zip".to_string()),
+                        _ => None,
+                    };
+                    
                     let options = flux_lib::archive::PackOptions {
-                        smart: true,
-                        algorithm: None,
+                        smart: false, // Disable smart mode since user explicitly selected format
+                        algorithm,
                         level: None,
                         threads: None,
                         force_compress: false,
@@ -307,9 +316,18 @@ impl eframe::App for FluxApp {
                                 }
                             }
                             PackingAction::SelectOutput => {
+                                // Determine file extension and filter based on compression format
+                                let (extension, filter_name) = match self.compression_format.as_str() {
+                                    "tar.gz" => ("tar.gz", "TAR GZ Archive"),
+                                    "tar.zst" => ("tar.zst", "TAR ZST Archive"),
+                                    "tar.xz" => ("tar.xz", "TAR XZ Archive"),
+                                    "zip" => ("zip", "ZIP Archive"),
+                                    _ => ("tar.gz", "Archive"),
+                                };
+                                
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .set_file_name(&format!("archive.{}", self.compression_format))
-                                    .add_filter("Archive", &[&self.compression_format])
+                                    .set_file_name(&format!("archive.{}", extension))
+                                    .add_filter(filter_name, &[extension])
                                     .save_file() {
                                     self.output_path = Some(path);
                                 }

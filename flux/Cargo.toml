@@ -1,5 +1,5 @@
 [workspace]
-members = ["flux-lib", "flux-cli", "flux-gui"]
+members = ["flux-lib", "flux-cli", "flux-gui", "flux-cloud"]
 resolver = "2"
 
 [workspace.package]

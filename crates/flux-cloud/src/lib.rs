@@ -6,13 +6,13 @@
 
 pub mod error;
 pub mod reader;
-pub mod writer;
 pub mod store;
+pub mod writer;
 
 pub use error::{CloudError, Result};
 pub use reader::CloudReader;
+pub use store::{CloudPath, CloudStore};
 pub use writer::CloudWriter;
-pub use store::{CloudStore, CloudPath};
 
 // Re-export commonly used types
-pub use object_store::{ObjectStore, ObjectMeta};
+pub use object_store::{ObjectMeta, ObjectStore};

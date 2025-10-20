@@ -14,7 +14,7 @@ pub fn draw_extracting_view(
     hoist_enabled: &mut bool,
 ) -> Option<ExtractingAction> {
     let mut action = None;
-    
+
     ui.heading("📂 Extract Archive");
     ui.separator();
     ui.add_space(10.0);
@@ -29,12 +29,15 @@ pub fn draw_extracting_view(
             });
             ui.add_space(5.0);
             ui.horizontal(|ui| {
-                ui.label(archive.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or_else(|| archive.to_str().unwrap_or("Unknown")));
+                ui.label(
+                    archive
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or_else(|| archive.to_str().unwrap_or("Unknown")),
+                );
             });
         });
-        
+
         ui.add_space(10.0);
 
         // Try to display file size
@@ -56,21 +59,21 @@ pub fn draw_extracting_view(
                     } else {
                         "GZIP Archive"
                     }
-                },
+                }
                 "zst" => {
                     if archive.to_str().unwrap_or("").ends_with(".tar.zst") {
                         "TAR.ZST Archive (Zstandard)"
                     } else {
                         "Zstandard Archive"
                     }
-                },
+                }
                 "xz" => {
                     if archive.to_str().unwrap_or("").ends_with(".tar.xz") {
                         "TAR.XZ Archive"
                     } else {
                         "XZ Archive"
                     }
-                },
+                }
                 "7z" => "7-Zip Archive",
                 "tar" => "TAR Archive",
                 _ => "Archive",
@@ -89,30 +92,38 @@ pub fn draw_extracting_view(
     // Output directory selection with visual guidance
     ui.horizontal(|ui| {
         ui.label("Output directory:");
-        
+
         // Display current output directory or placeholder text
         let has_output = output_dir.is_some();
-        let output_text = output_dir.as_ref()
+        let output_text = output_dir
+            .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "⚠️ No directory selected".to_string());
-        
+
         if has_output {
             ui.label(&output_text);
         } else {
             ui.colored_label(egui::Color32::from_rgb(255, 152, 0), &output_text);
         }
-        
+
         // Browse button to select output directory
-        if ui.add_enabled(!is_busy, egui::Button::new("Browse...")).clicked() {
+        if ui
+            .add_enabled(!is_busy, egui::Button::new("Browse..."))
+            .clicked()
+        {
             action = Some(ExtractingAction::SelectOutputDir);
         }
     });
-    
+
     // Show helpful tip if output not selected
     if output_dir.is_none() && !is_busy {
         ui.add_space(5.0);
         ui.indent("extract_tip", |ui| {
-            ui.label(egui::RichText::new("💡 Select where to extract the files").size(12.0).color(ui.style().visuals.weak_text_color()));
+            ui.label(
+                egui::RichText::new("💡 Select where to extract the files")
+                    .size(12.0)
+                    .color(ui.style().visuals.weak_text_color()),
+            );
         });
     }
 
@@ -128,11 +139,15 @@ pub fn draw_extracting_view(
     ui.horizontal(|ui| {
         ui.checkbox(hoist_enabled, "");
         ui.label("Smart folder extraction");
-        if ui.small_button("?").on_hover_text(
-            "If the archive contains a single folder at the root level, \
+        if ui
+            .small_button("?")
+            .on_hover_text(
+                "If the archive contains a single folder at the root level, \
             extract its contents directly to the output directory, \
-            eliminating redundant nested folders."
-        ).clicked() {
+            eliminating redundant nested folders.",
+            )
+            .clicked()
+        {
             // Do nothing, just showing tooltip
         }
     });
@@ -143,32 +158,46 @@ pub fn draw_extracting_view(
     ui.horizontal(|ui| {
         // Start extraction button
         let can_start = !is_busy && archive_path.is_some() && output_dir.is_some();
-        if ui.add_enabled(can_start, egui::Button::new("Start Extracting")
-                .min_size(egui::vec2(140.0, 35.0)))
-            .clicked() {
+        if ui
+            .add_enabled(
+                can_start,
+                egui::Button::new("Start Extracting").min_size(egui::vec2(140.0, 35.0)),
+            )
+            .clicked()
+        {
             action = Some(ExtractingAction::StartExtracting);
         }
 
         // Cancel button - enabled when busy (cancels task) or when not busy (clears selection)
         let cancel_text = if is_busy { "Cancel Task" } else { "Clear" };
-        if ui.add(egui::Button::new(cancel_text)
-                .min_size(egui::vec2(80.0, 35.0)))
-            .clicked() {
-            action = Some(if is_busy { ExtractingAction::Cancel } else { ExtractingAction::Clear });
+        if ui
+            .add(egui::Button::new(cancel_text).min_size(egui::vec2(80.0, 35.0)))
+            .clicked()
+        {
+            action = Some(if is_busy {
+                ExtractingAction::Cancel
+            } else {
+                ExtractingAction::Clear
+            });
         }
-        
+
         ui.add_space(20.0);
-        
+
         // Browse for different archive
-        if ui.add_enabled(!is_busy, egui::Button::new("📁 Browse Archive"))
-            .clicked() {
+        if ui
+            .add_enabled(!is_busy, egui::Button::new("📁 Browse Archive"))
+            .clicked()
+        {
             action = Some(ExtractingAction::BrowseArchive);
         }
-        
+
         // Open archive browser
-        if archive_path.is_some() && ui.add_enabled(!is_busy, egui::Button::new("🔍 View Contents"))
-            .on_hover_text("Browse archive contents without extracting")
-            .clicked() {
+        if archive_path.is_some()
+            && ui
+                .add_enabled(!is_busy, egui::Button::new("🔍 View Contents"))
+                .on_hover_text("Browse archive contents without extracting")
+                .clicked()
+        {
             action = Some(ExtractingAction::OpenBrowser);
         }
     });

@@ -3,7 +3,7 @@ members = [
     "crates/flux-core",
     "crates/flux-cloud", 
     "crates/flux-testing",
-    "crates/flux",
+    "crates/flux-cli",
     "crates/flux-gui"
 ]
 resolver = "2"

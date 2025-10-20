@@ -1,8 +1,8 @@
 //! Security utilities for safe archive operations
 
-use std::path::{Path, PathBuf, Component};
 use crate::{Error, Result};
-use tracing::{warn, error};
+use std::path::{Component, Path, PathBuf};
+use tracing::{error, warn};
 
 /// Maximum allowed extraction size (10 GB by default)
 pub const DEFAULT_MAX_EXTRACTION_SIZE: u64 = 10 * 1024 * 1024 * 1024;
@@ -37,7 +37,7 @@ impl Default for SecurityOptions {
 /// Sanitize and validate a path to prevent directory traversal attacks
 pub fn sanitize_path(base: &Path, untrusted: &Path) -> Result<PathBuf> {
     let mut result = base.to_path_buf();
-    
+
     // Iterate through components and build safe path
     for component in untrusted.components() {
         match component {
@@ -73,11 +73,12 @@ pub fn sanitize_path(base: &Path, untrusted: &Path) -> Result<PathBuf> {
             }
         }
     }
-    
+
     // Verify the final path is still within the base directory
-    let canonical_base = base.canonicalize()
+    let canonical_base = base
+        .canonicalize()
         .map_err(|e| Error::InvalidPath(format!("Cannot canonicalize base path: {}", e)))?;
-    
+
     // Check if result starts with base (without canonicalizing result since it may not exist yet)
     if !result.starts_with(&canonical_base) {
         error!(base = ?base, path = ?untrusted, result = ?result, "Path escapes base directory");
@@ -86,16 +87,21 @@ pub fn sanitize_path(base: &Path, untrusted: &Path) -> Result<PathBuf> {
             untrusted
         )));
     }
-    
+
     Ok(result)
 }
 
 /// Validate symlink target to prevent escaping extraction directory
-pub fn validate_symlink(base: &Path, link_path: &Path, target: &Path, allow_external: bool) -> Result<()> {
+pub fn validate_symlink(
+    base: &Path,
+    link_path: &Path,
+    target: &Path,
+    allow_external: bool,
+) -> Result<()> {
     if allow_external {
         return Ok(());
     }
-    
+
     // If target is absolute, it's definitely external
     if target.is_absolute() {
         warn!(link = ?link_path, target = ?target, "Symlink has absolute target");
@@ -104,11 +110,12 @@ pub fn validate_symlink(base: &Path, link_path: &Path, target: &Path, allow_exte
             link_path, target
         )));
     }
-    
+
     // Resolve the link target relative to the link's parent directory
-    let link_parent = link_path.parent()
+    let link_parent = link_path
+        .parent()
         .ok_or_else(|| Error::InvalidPath("Symlink has no parent directory".to_string()))?;
-    
+
     // Normalize the path by resolving .. components
     let mut normalized = PathBuf::new();
     let start_path = if link_parent.starts_with(base) {
@@ -116,15 +123,14 @@ pub fn validate_symlink(base: &Path, link_path: &Path, target: &Path, allow_exte
     } else {
         link_parent
     };
-    
+
     // Start with the link's parent directory components
     for component in start_path.components() {
-        match component {
-            Component::Normal(name) => normalized.push(name),
-            _ => {}
+        if let Component::Normal(name) = component {
+            normalized.push(name)
         }
     }
-    
+
     // Apply the target path components
     for component in target.components() {
         match component {
@@ -154,7 +160,7 @@ pub fn validate_symlink(base: &Path, link_path: &Path, target: &Path, allow_exte
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -167,46 +173,36 @@ pub fn check_compression_ratio(
     if compressed_size == 0 {
         return Ok(());
     }
-    
+
     let ratio = uncompressed_size as f64 / compressed_size as f64;
     if ratio > max_ratio {
         error!(
             compressed_size,
-            uncompressed_size,
-            ratio,
-            max_ratio,
-            "Suspicious compression ratio detected"
+            uncompressed_size, ratio, max_ratio, "Suspicious compression ratio detected"
         );
         return Err(Error::SecurityError(format!(
             "Suspicious compression ratio {:.1}:1 exceeds maximum {:.1}:1",
             ratio, max_ratio
         )));
     }
-    
+
     Ok(())
 }
 
 /// Check if extraction would exceed size limits
-pub fn check_extraction_size(
-    current_total: u64,
-    entry_size: u64,
-    max_size: u64,
-) -> Result<()> {
+pub fn check_extraction_size(current_total: u64, entry_size: u64, max_size: u64) -> Result<()> {
     let new_total = current_total.saturating_add(entry_size);
     if new_total > max_size {
         error!(
             current_total,
-            entry_size,
-            new_total,
-            max_size,
-            "Extraction would exceed size limit"
+            entry_size, new_total, max_size, "Extraction would exceed size limit"
         );
         return Err(Error::SecurityError(format!(
             "Extraction would exceed maximum size of {} bytes",
             max_size
         )));
     }
-    
+
     Ok(())
 }
 
@@ -215,27 +211,26 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
     #[cfg(unix)]
     {
         use std::fs;
-        
-        let _metadata = fs::metadata(path)
-            .or_else(|_| {
-                // If path doesn't exist, check parent directory
-                path.parent()
-                    .ok_or_else(|| Error::InvalidPath("No parent directory".to_string()))
-                    .and_then(|p| fs::metadata(p).map_err(|e| Error::Io(e.into())))
-            })?;
-        
+
+        let _metadata = fs::metadata(path).or_else(|_| {
+            // If path doesn't exist, check parent directory
+            path.parent()
+                .ok_or_else(|| Error::InvalidPath("No parent directory".to_string()))
+                .and_then(|p| fs::metadata(p).map_err(|e| Error::Io(e)))
+        })?;
+
         // Get filesystem statistics
         let stat = unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             let path_cstr = std::ffi::CString::new(path.to_string_lossy().as_bytes())
                 .map_err(|_| Error::InvalidPath("Invalid path for statvfs".to_string()))?;
-            
+
             if libc::statvfs(path_cstr.as_ptr(), &mut stat) != 0 {
-                return Err(Error::Io(std::io::Error::last_os_error().into()));
+                return Err(Error::Io(std::io::Error::last_os_error()));
             }
             stat
         };
-        
+
         let available = stat.f_bavail as u64 * stat.f_frsize as u64;
         if available < required_bytes {
             error!(
@@ -250,34 +245,29 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
             )));
         }
     }
-    
+
     #[cfg(windows)]
     {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
         use winapi::um::fileapi::GetDiskFreeSpaceExW;
         use winapi::um::winnt::ULARGE_INTEGER;
-        use std::os::windows::ffi::OsStrExt;
-        use std::ffi::OsStr;
-        
+
         let path_wide: Vec<u16> = OsStr::new(&path.to_string_lossy())
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        
+
         let mut available = ULARGE_INTEGER::default();
         let mut total = ULARGE_INTEGER::default();
         let mut free = ULARGE_INTEGER::default();
-        
+
         unsafe {
-            if GetDiskFreeSpaceExW(
-                path_wide.as_ptr(),
-                &mut available,
-                &mut total,
-                &mut free,
-            ) == 0 {
+            if GetDiskFreeSpaceExW(path_wide.as_ptr(), &mut available, &mut total, &mut free) == 0 {
                 return Err(Error::Io(std::io::Error::last_os_error().into()));
             }
         }
-        
+
         let available_bytes = unsafe { *available.QuadPart() } as u64;
         if available_bytes < required_bytes {
             error!(
@@ -292,13 +282,13 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
             )));
         }
     }
-    
+
     #[cfg(not(any(unix, windows)))]
     {
         // On other platforms, skip disk space check
         warn!("Disk space check not implemented for this platform");
     }
-    
+
     Ok(())
 }
 
@@ -306,7 +296,7 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_sanitize_path_normal() {
         let temp_dir = TempDir::new().unwrap();
@@ -315,7 +305,7 @@ mod tests {
         let result = sanitize_path(base, path).unwrap();
         assert_eq!(result, base.join("subdir/file.txt"));
     }
-    
+
     #[test]
     fn test_sanitize_path_parent_dir() {
         let temp_dir = TempDir::new().unwrap();
@@ -323,7 +313,7 @@ mod tests {
         let path = Path::new("../etc/passwd");
         assert!(sanitize_path(base, path).is_err());
     }
-    
+
     #[test]
     fn test_sanitize_path_absolute() {
         let temp_dir = TempDir::new().unwrap();
@@ -331,22 +321,22 @@ mod tests {
         let path = Path::new("/etc/passwd");
         assert!(sanitize_path(base, path).is_err());
     }
-    
+
     #[test]
     fn test_compression_ratio_normal() {
         assert!(check_compression_ratio(1000, 5000, 100.0).is_ok());
     }
-    
+
     #[test]
     fn test_compression_ratio_suspicious() {
         assert!(check_compression_ratio(100, 1_000_000, 100.0).is_err());
     }
-    
+
     #[test]
     fn test_extraction_size_within_limit() {
         assert!(check_extraction_size(1000, 500, 2000).is_ok());
     }
-    
+
     #[test]
     fn test_extraction_size_exceeds_limit() {
         assert!(check_extraction_size(1000, 1500, 2000).is_err());

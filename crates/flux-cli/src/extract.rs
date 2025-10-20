@@ -57,7 +57,7 @@ impl ConflictHandler for InteractiveConflictHandler {
             .interact()
             .unwrap_or(1);
 
-        let action = match selection {
+        match selection {
             0 => ConflictAction::Overwrite,
             1 => ConflictAction::Skip,
             2 => ConflictAction::Rename,
@@ -71,9 +71,7 @@ impl ConflictHandler for InteractiveConflictHandler {
             }
             5 => ConflictAction::Abort,
             _ => ConflictAction::Skip,
-        };
-
-        action
+        }
     }
 }
 
@@ -86,13 +84,12 @@ pub fn extract_interactive(
     hoist: bool,
 ) -> Result<()> {
     // Check if it's a 7z archive (which doesn't support interactive extraction)
-    let ext = archive
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    
+    let ext = archive.extension().and_then(|e| e.to_str()).unwrap_or("");
+
     if ext == "7z" {
-        warn!("Interactive extraction is not supported for 7z archives. Using standard extraction.");
+        warn!(
+            "Interactive extraction is not supported for 7z archives. Using standard extraction."
+        );
         let options = ExtractOptions {
             overwrite: false,
             skip: true,
@@ -107,9 +104,7 @@ pub fn extract_interactive(
     let extractor = create_extractor(archive)?;
 
     // Get all entries first to show progress
-    let entries: Vec<_> = extractor
-        .entries(archive)?
-        .collect::<Result<Vec<_>, _>>()?;
+    let entries: Vec<_> = extractor.entries(archive)?.collect::<Result<Vec<_>, _>>()?;
 
     let total_entries = entries.len();
     info!("Found {} entries in archive", total_entries);
@@ -119,7 +114,9 @@ pub fn extract_interactive(
         let pb = ProgressBar::new(total_entries as u64);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
+                )
                 .unwrap()
                 .progress_chars("#>-"),
         );
@@ -145,14 +142,17 @@ pub fn extract_interactive(
 
         // Calculate destination path
         let mut dest_path = entry.path.clone();
-        
+
         // Strip components if requested
         if let Some(strip) = strip_components {
             let components: Vec<_> = dest_path.components().collect();
             if components.len() > strip {
                 dest_path = components[strip..].iter().collect();
             } else {
-                debug!("Skipping entry with insufficient path components: {:?}", entry.path);
+                debug!(
+                    "Skipping entry with insufficient path components: {:?}",
+                    entry.path
+                );
                 skipped += 1;
                 continue;
             }
@@ -171,7 +171,10 @@ pub fn extract_interactive(
             ConflictAction::Abort => {
                 warn!("Extraction aborted by user");
                 if failed > 0 {
-                    return Err(FluxError::PartialFailure { count: failed as u32 }.into());
+                    return Err(FluxError::PartialFailure {
+                        count: failed as u32,
+                    }
+                    .into());
                 }
                 return Ok(());
             }
@@ -203,7 +206,7 @@ pub fn extract_interactive(
                 match extractor.extract_entry(
                     archive,
                     entry,
-                    &renamed_path.parent().unwrap_or(output_dir),
+                    renamed_path.parent().unwrap_or(output_dir),
                     ExtractEntryOptions {
                         overwrite: true,
                         preserve_permissions: true,
@@ -212,7 +215,10 @@ pub fn extract_interactive(
                     },
                 ) {
                     Ok(_) => {
-                        info!("Extracted (renamed): {:?} -> {:?}", entry.path, renamed_path);
+                        info!(
+                            "Extracted (renamed): {:?} -> {:?}",
+                            entry.path, renamed_path
+                        );
                         extracted += 1;
                     }
                     Err(e) => {
@@ -257,7 +263,10 @@ pub fn extract_interactive(
     );
 
     if failed > 0 {
-        Err(FluxError::PartialFailure { count: failed as u32 }.into())
+        Err(FluxError::PartialFailure {
+            count: failed as u32,
+        }
+        .into())
     } else {
         // Perform directory hoisting if requested
         if hoist {
@@ -281,12 +290,12 @@ pub fn extract_with_options(
 ) -> Result<()> {
     // Note: The hoist option is already included in ExtractOptions,
     // so we don't need the separate _hoist parameter
-    
+
     // TODO: Implement progress bar for non-interactive extraction
     if show_progress {
         info!("Progress bar not yet implemented for non-interactive extraction");
     }
-    
+
     flux_core::archive::extract_with_options(archive, output_dir, options)?;
     Ok(())
 }

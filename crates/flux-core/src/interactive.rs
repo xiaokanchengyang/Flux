@@ -37,14 +37,14 @@ impl FixedResolver {
             action: ConflictAction::Overwrite,
         }
     }
-    
+
     /// Create a resolver that always skips
     pub fn skip() -> Self {
         Self {
             action: ConflictAction::Skip,
         }
     }
-    
+
     /// Create a resolver that always renames
     pub fn rename() -> Self {
         Self {
@@ -79,9 +79,9 @@ impl<R: ConflictResolver> ConflictResolver for StatefulResolver<R> {
         if let Some(action) = self.override_action {
             return action;
         }
-        
+
         let action = self.inner.resolve_conflict(path);
-        
+
         match action {
             ConflictAction::OverwriteAll => {
                 self.override_action = Some(ConflictAction::Overwrite);

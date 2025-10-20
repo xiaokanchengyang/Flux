@@ -10,11 +10,11 @@ use tempfile::TempDir;
 /// Generate test directory with realistic content
 fn generate_realistic_content(dir: &TempDir) {
     // Create a mix of files that resembles a typical project
-    
+
     // Source code files
     let src_dir = dir.path().join("src");
     fs::create_dir_all(&src_dir).unwrap();
-    
+
     for i in 0..20 {
         let file_path = src_dir.join(format!("module_{}.rs", i));
         let content = format!(
@@ -53,11 +53,11 @@ mod tests {{
         );
         fs::write(file_path, content).unwrap();
     }
-    
+
     // Documentation files
     let docs_dir = dir.path().join("docs");
     fs::create_dir_all(&docs_dir).unwrap();
-    
+
     for i in 0..10 {
         let file_path = docs_dir.join(format!("chapter_{}.md", i));
         let content = format!(
@@ -68,7 +68,7 @@ mod tests {{
         );
         fs::write(file_path, content).unwrap();
     }
-    
+
     // Configuration files
     let config_content = r#"
 [package]
@@ -80,11 +80,11 @@ serde = "1.0"
 tokio = "1.0"
 "#;
     fs::write(dir.path().join("Cargo.toml"), config_content).unwrap();
-    
+
     // Binary data
     let data_dir = dir.path().join("data");
     fs::create_dir_all(&data_dir).unwrap();
-    
+
     for i in 0..5 {
         let file_path = data_dir.join(format!("data_{}.bin", i));
         let data = vec![i as u8; 1024 * 100]; // 100KB of repeated bytes
@@ -96,7 +96,7 @@ tokio = "1.0"
 fn bench_flux_vs_tar(c: &mut Criterion) {
     let mut group = c.benchmark_group("flux_vs_tar");
     group.sample_size(10);
-    
+
     // Benchmark Flux
     group.bench_function("flux_pack_project", |b| {
         b.iter_with_setup(
@@ -115,17 +115,18 @@ fn bench_flux_vs_tar(c: &mut Criterion) {
                     force_compress: false,
                     follow_symlinks: false,
                 };
-                
+
                 pack_with_strategy(
                     black_box(input_dir.path()),
                     black_box(&output),
                     None,
                     options,
-                ).unwrap();
+                )
+                .unwrap();
             },
         );
     });
-    
+
     // Benchmark system tar (if available)
     if Command::new("tar").arg("--version").output().is_ok() {
         group.bench_function("system_tar_pack_project", |b| {
@@ -137,7 +138,7 @@ fn bench_flux_vs_tar(c: &mut Criterion) {
                 },
                 |(input_dir, output_dir)| {
                     let output = output_dir.path().join("archive.tar.gz");
-                    
+
                     Command::new("tar")
                         .arg("-czf")
                         .arg(&output)
@@ -150,7 +151,7 @@ fn bench_flux_vs_tar(c: &mut Criterion) {
             );
         });
     }
-    
+
     group.finish();
 }
 
@@ -158,10 +159,10 @@ fn bench_flux_vs_tar(c: &mut Criterion) {
 fn bench_compression_ratio(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression_ratio");
     group.sample_size(5);
-    
+
     // This is more of a measurement than a benchmark
     // We'll create archives and compare sizes
-    
+
     group.bench_function("measure_flux_compression", |b| {
         b.iter_with_setup(
             || {
@@ -180,14 +181,9 @@ fn bench_compression_ratio(c: &mut Criterion) {
                     force_compress: false,
                     follow_symlinks: false,
                 };
-                
-                pack_with_strategy(
-                    input_dir.path(),
-                    &output,
-                    None,
-                    options,
-                ).unwrap();
-                
+
+                pack_with_strategy(input_dir.path(), &output, None, options).unwrap();
+
                 // Measure compression ratio
                 let input_size: u64 = walkdir::WalkDir::new(input_dir.path())
                     .into_iter()
@@ -195,21 +191,17 @@ fn bench_compression_ratio(c: &mut Criterion) {
                     .filter(|e| e.file_type().is_file())
                     .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
                     .sum();
-                    
+
                 let output_size = fs::metadata(&output).unwrap().len();
                 let ratio = input_size as f64 / output_size as f64;
-                
+
                 black_box(ratio);
             },
         );
     });
-    
+
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_flux_vs_tar,
-    bench_compression_ratio
-);
+criterion_group!(benches, bench_flux_vs_tar, bench_compression_ratio);
 criterion_main!(benches);

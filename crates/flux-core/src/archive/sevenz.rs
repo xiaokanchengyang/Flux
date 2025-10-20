@@ -42,7 +42,7 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> 
     // Extract all entries
     sz.for_each_entries(|entry, reader| {
         let path = output_dir.join(&entry.name);
-        
+
         if entry.is_directory {
             fs::create_dir_all(&path)?;
         } else {
@@ -50,14 +50,14 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> 
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            
+
             debug!("Extracting: {:?}", entry.name);
-            
+
             // Extract the file
             let mut output_file = File::create(&path)?;
             io::copy(reader, &mut output_file)?;
         }
-        
+
         Ok(true) // Continue extraction
     })
     .map_err(|e| Error::ArchiveError(format!("Failed to extract 7z archive: {}", e)))?;
@@ -87,7 +87,7 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     // Extract all entries
     sz.for_each_entries(|entry, reader| {
         let entry_path = PathBuf::from(&entry.name);
-        
+
         // Handle strip components
         let final_path = if let Some(strip) = options.strip_components {
             let components: Vec<_> = entry_path.components().collect();
@@ -111,7 +111,12 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                     let file_stem = final_path.file_stem().unwrap_or_default();
                     let extension = final_path.extension();
                     let new_name = if let Some(ext) = extension {
-                        format!("{}_{}.{}", file_stem.to_string_lossy(), counter, ext.to_string_lossy())
+                        format!(
+                            "{}_{}.{}",
+                            file_stem.to_string_lossy(),
+                            counter,
+                            ext.to_string_lossy()
+                        )
                     } else {
                         format!("{}_{}", file_stem.to_string_lossy(), counter)
                     };
@@ -120,7 +125,11 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 }
                 debug!("Renaming to: {:?}", new_path);
             } else if !options.overwrite {
-                return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("File exists: {:?}", final_path)).into());
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!("File exists: {:?}", final_path),
+                )
+                .into());
             }
         }
 
@@ -138,7 +147,7 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
             let mut output_file = File::create(&final_path)?;
             io::copy(reader, &mut output_file)?;
         }
-        
+
         Ok(true) // Continue extraction
     })
     .map_err(|e| Error::ArchiveError(format!("Failed to extract 7z archive: {}", e)))?;
@@ -170,11 +179,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let input = temp_dir.path().join("test.txt");
         let output = temp_dir.path().join("test.7z");
-        
+
         fs::write(&input, "test content").unwrap();
-        
+
         let result = pack_7z(&input, &output);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::UnsupportedOperation(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            Error::UnsupportedOperation(_)
+        ));
     }
 }

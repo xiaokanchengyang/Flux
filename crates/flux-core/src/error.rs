@@ -30,22 +30,22 @@ pub enum Error {
 
     #[error("Zip error: {0}")]
     Zip(String),
-    
+
     #[error("Archive error: {0}")]
     ArchiveError(String),
-    
+
     #[error("File exists: {0}")]
     FileExists(std::path::PathBuf),
-    
+
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
-    
+
     #[error("Partial failure: {count} operations failed")]
     PartialFailure { count: u32 },
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Security error: {0}")]
     SecurityError(String),
 }

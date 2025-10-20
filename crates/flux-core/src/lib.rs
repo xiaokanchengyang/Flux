@@ -6,18 +6,18 @@
 pub mod archive;
 pub mod config;
 pub mod error;
-pub mod metadata;
-pub mod progress;
-pub mod strategy;
 pub mod interactive;
 pub mod manifest;
+pub mod metadata;
+pub mod progress;
 pub mod security;
+pub mod strategy;
 pub mod utils;
 
 pub use error::{Error, Result};
 
 // Re-export commonly used types
 pub use archive::{
-    extract, extract_with_options, inspect, pack, pack_with_strategy, ArchiveEntry, ExtractOptions,
-    PackOptions, create_extractor,
+    create_extractor, extract, extract_with_options, inspect, pack, pack_with_strategy,
+    ArchiveEntry, ExtractOptions, PackOptions,
 };

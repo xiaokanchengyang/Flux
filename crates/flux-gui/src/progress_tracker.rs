@@ -1,7 +1,7 @@
 //! Progress tracking with speed and ETA calculation
 
-use std::time::{Instant, Duration};
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 /// A progress tracker that calculates speed and ETA
 pub struct ProgressTracker {
@@ -28,27 +28,28 @@ impl ProgressTracker {
             last_bytes: 0,
         }
     }
-    
+
     /// Update progress and calculate speed/ETA
     pub fn update(&mut self, processed_bytes: u64, total_bytes: u64) -> (f64, Option<f64>) {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_update);
-        
+
         // Calculate instantaneous speed
-        if elapsed.as_secs_f64() > 0.1 {  // Only update if enough time has passed
+        if elapsed.as_secs_f64() > 0.1 {
+            // Only update if enough time has passed
             let bytes_delta = processed_bytes.saturating_sub(self.last_bytes) as f64;
             let speed = bytes_delta / elapsed.as_secs_f64();
-            
+
             // Add to history
             self.speed_history.push_back(speed);
             if self.speed_history.len() > self.max_samples {
                 self.speed_history.pop_front();
             }
-            
+
             self.last_update = now;
             self.last_bytes = processed_bytes;
         }
-        
+
         // Calculate average speed
         let avg_speed = if self.speed_history.is_empty() {
             // Fallback to overall average if no samples yet
@@ -61,7 +62,7 @@ impl ProgressTracker {
         } else {
             self.speed_history.iter().sum::<f64>() / self.speed_history.len() as f64
         };
-        
+
         // Calculate ETA
         let eta = if avg_speed > 0.0 && processed_bytes < total_bytes {
             let remaining_bytes = (total_bytes - processed_bytes) as f64;
@@ -69,10 +70,10 @@ impl ProgressTracker {
         } else {
             None
         };
-        
+
         (avg_speed, eta)
     }
-    
+
     /// Reset the tracker
     pub fn reset(&mut self) {
         self.start_time = Instant::now();
@@ -99,7 +100,7 @@ pub fn format_speed(bps: f64) -> String {
 pub fn format_duration(seconds: f64) -> String {
     let duration = Duration::from_secs_f64(seconds);
     let total_seconds = duration.as_secs();
-    
+
     if total_seconds < 60 {
         format!("{}s", total_seconds)
     } else if total_seconds < 3600 {

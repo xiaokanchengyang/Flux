@@ -240,7 +240,7 @@ impl CompressionStrategy {
         // Store user preferences for later application
         let user_level = level;
         let user_threads = threads;
-        
+
         // Get file size early for size-based rules
         let file_size = path.metadata().map(|m| m.len()).unwrap_or(0);
 
@@ -259,7 +259,7 @@ impl CompressionStrategy {
                     }
                     return custom;
                 }
-                
+
                 // Check size-based rules
                 for size_rule in &config.strategy.size_rules {
                     if file_size >= size_rule.threshold {
@@ -267,11 +267,11 @@ impl CompressionStrategy {
                             "File size {} bytes exceeds threshold {} bytes, using {} algorithm with level {}",
                             file_size, size_rule.threshold, size_rule.algorithm, size_rule.level
                         );
-                        
+
                         if let Ok(algorithm) = size_rule.algorithm.parse::<Algorithm>() {
                             strategy.algorithm = algorithm;
                             strategy.level = user_level.unwrap_or(size_rule.level);
-                            
+
                             // Apply automatic thread adjustment for the selected algorithm
                             strategy.threads = user_threads.unwrap_or_else(|| {
                                 match algorithm {
@@ -281,7 +281,7 @@ impl CompressionStrategy {
                                     _ => current_num_threads(),
                                 }
                             });
-                            
+
                             return strategy;
                         }
                     }
@@ -589,7 +589,7 @@ pub fn determine_compression_for_entry<P: AsRef<Path>>(
     config: &Config,
 ) -> CompressionStrategy {
     let path = path.as_ref();
-    
+
     // Check size-based rules first (highest priority)
     for size_rule in &config.strategy.size_rules {
         if size >= size_rule.threshold {
@@ -601,7 +601,7 @@ pub fn determine_compression_for_entry<P: AsRef<Path>>(
                 size_rule.algorithm,
                 size_rule.level
             );
-            
+
             if let Ok(algorithm) = size_rule.algorithm.parse::<Algorithm>() {
                 let mut strategy = CompressionStrategy {
                     algorithm,
@@ -610,7 +610,7 @@ pub fn determine_compression_for_entry<P: AsRef<Path>>(
                     force_compress: false,
                     long_mode: false,
                 };
-                
+
                 // Adjust threads based on algorithm and size
                 match algorithm {
                     Algorithm::Xz => strategy.threads = 1, // XZ should always use single thread
@@ -632,12 +632,12 @@ pub fn determine_compression_for_entry<P: AsRef<Path>>(
                     }
                     _ => strategy.threads = rayon::current_num_threads(),
                 }
-                
+
                 return strategy;
             }
         }
     }
-    
+
     // If no size rule matches, use smart strategy
     CompressionStrategy::smart(path, None, None)
 }
@@ -707,13 +707,11 @@ mod tests {
 
         // Create config with size rules
         let mut config = Config::default();
-        config.strategy.size_rules = vec![
-            SizeRule {
-                threshold: 100 * 1024 * 1024, // 100 MiB
-                algorithm: "xz".to_string(),
-                level: 7,
-            },
-        ];
+        config.strategy.size_rules = vec![SizeRule {
+            threshold: 100 * 1024 * 1024, // 100 MiB
+            algorithm: "xz".to_string(),
+            level: 7,
+        }];
 
         // Test file below threshold
         let strategy = determine_compression_for_entry(&test_file, 50 * 1024 * 1024, &config);

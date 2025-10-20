@@ -5,7 +5,6 @@ use std::process;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-mod interactive;
 mod extract;
 mod tui;
 
@@ -58,13 +57,16 @@ enum Commands {
         /// Remove the specified number of leading path elements
         #[arg(long)]
         strip_components: Option<usize>,
-        
+
         /// Enable interactive mode for conflict resolution
         #[arg(long, short = 'i', conflicts_with_all = ["overwrite", "skip", "rename"])]
         interactive: bool,
 
         /// If the archive contains a single folder, hoist its contents to the output directory
-        #[arg(long, help = "If the archive contains a single folder, hoist its contents to the output directory")]
+        #[arg(
+            long,
+            help = "If the archive contains a single folder, hoist its contents to the output directory"
+        )]
         hoist: bool,
     },
 
@@ -104,7 +106,7 @@ enum Commands {
         /// Force compression on already compressed files
         #[arg(long)]
         force_compress: bool,
-        
+
         /// Previous manifest file for incremental backup
         #[arg(long)]
         incremental: Option<PathBuf>,
@@ -118,11 +120,11 @@ enum Commands {
         /// Output format as JSON
         #[arg(long)]
         json: bool,
-        
+
         /// Interactive TUI mode
         #[arg(short, long)]
         interactive: bool,
-        
+
         /// Show as tree structure
         #[arg(long)]
         tree: bool,
@@ -142,31 +144,31 @@ enum Commands {
         #[arg(long, conflicts_with_all = ["show", "edit"])]
         path: bool,
     },
-    
+
     /// Synchronize directory with incremental backup
     Sync {
         /// Source directory to backup
         source: PathBuf,
-        
+
         /// Target archive file
         target: PathBuf,
-        
+
         /// Compression algorithm (zstd, xz, brotli, gzip)
         #[arg(long)]
         algo: Option<String>,
-        
+
         /// Compression level (1-9 for most algorithms)
         #[arg(long)]
         level: Option<u32>,
-        
+
         /// Number of threads to use
         #[arg(long)]
         threads: Option<usize>,
-        
+
         /// Follow symlinks (pack link targets instead of links)
         #[arg(long)]
         follow_symlinks: bool,
-        
+
         /// Force full backup (ignore previous manifest)
         #[arg(long)]
         full: bool,
@@ -231,28 +233,37 @@ fn run() -> Result<()> {
             // Check if the archive is a cloud path
             #[cfg(feature = "cloud")]
             if cloud_handler::is_cloud_path(&archive_str) {
-                info!("Detected cloud archive: {}", cloud_handler::describe_cloud_location(&archive_str));
-                
+                info!(
+                    "Detected cloud archive: {}",
+                    cloud_handler::describe_cloud_location(&archive_str)
+                );
+
                 // Check credentials
                 cloud_handler::check_cloud_credentials(&archive_str)?;
-                
+
                 // Create cloud reader
                 let mut reader = cloud_handler::create_cloud_reader(&archive_str)?;
-                
+
                 // Create a temporary file to store the archive
                 let temp_dir = tempfile::tempdir()?;
                 let temp_archive = temp_dir.path().join("cloud_archive.tar");
                 let mut temp_file = std::fs::File::create(&temp_archive)?;
-                
+
                 // Download the archive to temp file
                 info!("Downloading archive from cloud storage...");
                 std::io::copy(&mut reader, &mut temp_file)?;
                 drop(temp_file);
-                
+
                 // Extract from the temporary file
                 if interactive {
                     info!("Interactive mode enabled - prompting for file conflicts");
-                    extract::extract_interactive(&temp_archive, &output_dir, strip_components, cli.progress, hoist)?;
+                    extract::extract_interactive(
+                        &temp_archive,
+                        &output_dir,
+                        strip_components,
+                        cli.progress,
+                        hoist,
+                    )?;
                 } else {
                     let options = flux_core::archive::ExtractOptions {
                         overwrite,
@@ -264,7 +275,7 @@ fn run() -> Result<()> {
 
                     flux_core::archive::extract_with_options(&temp_archive, &output_dir, options)?;
                 }
-                
+
                 info!("Extraction complete");
                 return Ok(());
             }
@@ -272,7 +283,13 @@ fn run() -> Result<()> {
             // Regular local file extraction
             if interactive {
                 info!("Interactive mode enabled - prompting for file conflicts");
-                extract::extract_interactive(&archive, &output_dir, strip_components, cli.progress, hoist)?;
+                extract::extract_interactive(
+                    &archive,
+                    &output_dir,
+                    strip_components,
+                    cli.progress,
+                    hoist,
+                )?;
             } else {
                 let options = flux_core::archive::ExtractOptions {
                     overwrite,
@@ -312,20 +329,25 @@ fn run() -> Result<()> {
             // Check if output is a cloud path
             #[cfg(feature = "cloud")]
             if cloud_handler::is_cloud_path(&output_str) {
-                info!("Detected cloud output: {}", cloud_handler::describe_cloud_location(&output_str));
-                
+                info!(
+                    "Detected cloud output: {}",
+                    cloud_handler::describe_cloud_location(&output_str)
+                );
+
                 // Check credentials
                 cloud_handler::check_cloud_credentials(&output_str)?;
-                
+
                 if incremental.is_some() {
                     error!("Incremental backup to cloud storage is not yet supported");
-                    return Err(anyhow::anyhow!("Incremental backup to cloud storage is not yet supported"));
+                    return Err(anyhow::anyhow!(
+                        "Incremental backup to cloud storage is not yet supported"
+                    ));
                 }
-                
+
                 // Create a temporary file for the archive
                 let temp_dir = tempfile::tempdir()?;
                 let temp_archive = temp_dir.path().join("temp_archive.tar");
-                
+
                 // Pack to temporary file
                 let options = flux_core::archive::PackOptions {
                     smart,
@@ -336,15 +358,20 @@ fn run() -> Result<()> {
                     follow_symlinks,
                 };
 
-                flux_core::archive::pack_with_strategy(&input, &temp_archive, format.as_deref(), options)?;
-                
+                flux_core::archive::pack_with_strategy(
+                    &input,
+                    &temp_archive,
+                    format.as_deref(),
+                    options,
+                )?;
+
                 // Upload to cloud
                 info!("Uploading archive to cloud storage...");
                 let mut cloud_writer = cloud_handler::create_cloud_writer(&output_str)?;
                 let mut temp_file = std::fs::File::open(&temp_archive)?;
                 std::io::copy(&mut temp_file, &mut cloud_writer)?;
                 cloud_writer.flush()?;
-                
+
                 info!("Packing complete - archive uploaded to cloud");
                 return Ok(());
             }
@@ -352,13 +379,18 @@ fn run() -> Result<()> {
             // Regular local file packing
             if let Some(manifest_path) = incremental {
                 // Incremental backup mode
-                info!("Performing incremental backup using manifest: {:?}", manifest_path);
-                
+                info!(
+                    "Performing incremental backup using manifest: {:?}",
+                    manifest_path
+                );
+
                 if !input.is_dir() {
                     error!("Incremental backup requires a directory as input");
-                    return Err(anyhow::anyhow!("Incremental backup requires a directory as input"));
+                    return Err(anyhow::anyhow!(
+                        "Incremental backup requires a directory as input"
+                    ));
                 }
-                
+
                 let (new_manifest_path, diff) = flux_core::archive::incremental::pack_incremental(
                     &input,
                     &output,
@@ -372,10 +404,14 @@ fn run() -> Result<()> {
                         follow_symlinks,
                     },
                 )?;
-                
+
                 info!("Incremental backup complete");
-                info!("Changes: {} added, {} modified, {} deleted", 
-                    diff.added.len(), diff.modified.len(), diff.deleted.len());
+                info!(
+                    "Changes: {} added, {} modified, {} deleted",
+                    diff.added.len(),
+                    diff.modified.len(),
+                    diff.deleted.len()
+                );
                 info!("New manifest saved to: {:?}", new_manifest_path);
             } else {
                 // Regular packing mode
@@ -388,21 +424,34 @@ fn run() -> Result<()> {
                     follow_symlinks,
                 };
 
-                flux_core::archive::pack_with_strategy(&input, &output, format.as_deref(), options)?;
-                
+                flux_core::archive::pack_with_strategy(
+                    &input,
+                    &output,
+                    format.as_deref(),
+                    options,
+                )?;
+
                 // Generate manifest for future incremental backups
                 if input.is_dir() {
                     let manifest = flux_core::manifest::Manifest::from_directory(&input)?;
                     let manifest_path = output.with_extension("manifest.json");
                     manifest.save(&manifest_path)?;
-                    info!("Manifest saved to: {:?} (use with --incremental for future backups)", manifest_path);
+                    info!(
+                        "Manifest saved to: {:?} (use with --incremental for future backups)",
+                        manifest_path
+                    );
                 }
-                
+
                 info!("Packing complete");
             }
         }
 
-        Commands::Inspect { archive, json, interactive, tree } => {
+        Commands::Inspect {
+            archive,
+            json,
+            interactive,
+            tree,
+        } => {
             let archive_str = archive.to_string_lossy();
             info!("Inspecting archive: {}", archive_str);
 
@@ -410,31 +459,34 @@ fn run() -> Result<()> {
                 #[cfg(feature = "cloud")]
                 {
                     if cloud_handler::is_cloud_path(&archive_str) {
-                        info!("Detected cloud archive: {}", cloud_handler::describe_cloud_location(&archive_str));
-                        
+                        info!(
+                            "Detected cloud archive: {}",
+                            cloud_handler::describe_cloud_location(&archive_str)
+                        );
+
                         // Check credentials
                         cloud_handler::check_cloud_credentials(&archive_str)?;
-                        
+
                         // Create cloud reader
                         let mut reader = cloud_handler::create_cloud_reader(&archive_str)?;
-                        
+
                         // Create a temporary file to store the archive
                         let temp_dir = tempfile::tempdir()?;
                         let temp_archive = temp_dir.path().join("cloud_archive.tar");
                         let mut temp_file = std::fs::File::create(&temp_archive)?;
-                        
+
                         // Download the archive to temp file
                         info!("Downloading archive from cloud storage...");
                         std::io::copy(&mut reader, &mut temp_file)?;
                         drop(temp_file);
-                        
+
                         // Inspect the temporary file
                         flux_core::inspect(&temp_archive)?
                     } else {
                         flux_core::inspect(&archive)?
                     }
                 }
-                
+
                 #[cfg(not(feature = "cloud"))]
                 flux_core::inspect(&archive)?
             };
@@ -543,7 +595,7 @@ fn run() -> Result<()> {
                 eprintln!("Please specify --show, --edit, or --path");
             }
         }
-        
+
         Commands::Sync {
             source,
             target,
@@ -554,19 +606,19 @@ fn run() -> Result<()> {
             full,
         } => {
             info!("Synchronizing {:?} to {:?}", source, target);
-            
+
             if !source.is_dir() {
                 error!("Source must be a directory");
                 return Err(anyhow::anyhow!("Source must be a directory"));
             }
-            
+
             // Determine manifest path
             let manifest_path = target.with_extension("fluxmanifest");
-            
+
             if full || !manifest_path.exists() {
                 // Full backup
                 info!("Performing full backup (no previous manifest found or --full specified)");
-                
+
                 let options = flux_core::archive::PackOptions {
                     smart: false,
                     algorithm: algo,
@@ -575,20 +627,26 @@ fn run() -> Result<()> {
                     force_compress: false,
                     follow_symlinks,
                 };
-                
+
                 // Use tar.gz as default format for sync
                 let format = Some("tar.gz");
                 flux_core::archive::pack_with_strategy(&source, &target, format, options)?;
-                
+
                 // Generate and save manifest
                 let manifest = flux_core::manifest::Manifest::from_directory(&source)?;
                 manifest.save(&manifest_path)?;
-                
-                info!("Full backup complete. Manifest saved to: {:?}", manifest_path);
+
+                info!(
+                    "Full backup complete. Manifest saved to: {:?}",
+                    manifest_path
+                );
             } else {
                 // Incremental backup
-                info!("Performing incremental backup using manifest: {:?}", manifest_path);
-                
+                info!(
+                    "Performing incremental backup using manifest: {:?}",
+                    manifest_path
+                );
+
                 let (new_manifest_path, diff) = flux_core::archive::incremental::pack_incremental(
                     &source,
                     &target,
@@ -602,11 +660,15 @@ fn run() -> Result<()> {
                         follow_symlinks,
                     },
                 )?;
-                
+
                 if diff.has_changes() {
                     info!("Incremental backup complete");
-                    info!("Changes: {} added, {} modified, {} deleted", 
-                        diff.added.len(), diff.modified.len(), diff.deleted.len());
+                    info!(
+                        "Changes: {} added, {} modified, {} deleted",
+                        diff.added.len(),
+                        diff.modified.len(),
+                        diff.deleted.len()
+                    );
                     info!("Updated manifest: {:?}", new_manifest_path);
                 } else {
                     info!("No changes detected since last backup");
@@ -623,12 +685,12 @@ fn print_tree(entries: &[flux_core::archive::ArchiveEntry]) {
     // Simple tree printing
     let mut sorted_entries = entries.to_vec();
     sorted_entries.sort_by(|a, b| a.path.cmp(&b.path));
-    
+
     println!("Archive contents:");
     for entry in &sorted_entries {
         let depth = entry.path.components().count();
         let indent = "  ".repeat(depth.saturating_sub(1));
-        
+
         let icon = if entry.is_dir {
             "📁"
         } else if entry.is_symlink {
@@ -636,7 +698,7 @@ fn print_tree(entries: &[flux_core::archive::ArchiveEntry]) {
         } else {
             "📄"
         };
-        
+
         let name = entry.path.to_string_lossy();
         println!("{}{} {}", indent, icon, name);
     }

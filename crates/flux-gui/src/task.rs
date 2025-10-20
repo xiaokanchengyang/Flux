@@ -1,7 +1,7 @@
 //! Background task handling for flux-gui
 
 use std::path::PathBuf;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{atomic::AtomicBool, Arc};
 
 /// Commands sent from UI to background thread
 pub enum TaskCommand {

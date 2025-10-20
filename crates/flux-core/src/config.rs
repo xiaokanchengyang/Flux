@@ -92,21 +92,23 @@ where
     D: serde::Deserializer<'de>,
 {
     use serde::de::Error;
-    
+
     let configs: Vec<SizeRuleConfig> = Vec::deserialize(deserializer)?;
     configs
         .into_iter()
         .map(|config| match config {
             SizeRuleConfig::Numeric(rule) => Ok(rule),
-            SizeRuleConfig::String { threshold, algorithm, level } => {
-                parse_size(&threshold)
-                    .map(|threshold_bytes| SizeRule {
-                        threshold: threshold_bytes,
-                        algorithm,
-                        level,
-                    })
-                    .map_err(|e| D::Error::custom(format!("Failed to parse threshold: {}", e)))
-            }
+            SizeRuleConfig::String {
+                threshold,
+                algorithm,
+                level,
+            } => parse_size(&threshold)
+                .map(|threshold_bytes| SizeRule {
+                    threshold: threshold_bytes,
+                    algorithm,
+                    level,
+                })
+                .map_err(|e| D::Error::custom(format!("Failed to parse threshold: {}", e))),
         })
         .collect()
 }
@@ -122,7 +124,7 @@ impl Default for StrategyConfig {
                 // You can also use string format in config file like:
                 // [[strategy.size_rules]]
                 // threshold = "128MiB"
-                // algorithm = "xz" 
+                // algorithm = "xz"
                 // level = 7
                 SizeRule {
                     threshold: 128 * 1024 * 1024, // 128 MiB
@@ -148,26 +150,30 @@ pub struct SizeRule {
 /// Parse size string like "100MiB" to bytes
 pub fn parse_size(size_str: &str) -> Result<u64> {
     let size_str = size_str.trim();
-    
+
     // Try to parse as plain number first
     if let Ok(bytes) = size_str.parse::<u64>() {
         return Ok(bytes);
     }
-    
+
     // Find where the number ends and unit begins
     let split_pos = size_str
         .chars()
         .position(|c| !c.is_ascii_digit() && c != '.')
         .unwrap_or(size_str.len());
-    
+
     if split_pos == 0 {
-        return Err(Error::ConfigError(format!("Invalid size format: {}", size_str)));
+        return Err(Error::ConfigError(format!(
+            "Invalid size format: {}",
+            size_str
+        )));
     }
-    
+
     let (number_part, unit_part) = size_str.split_at(split_pos);
-    let number: f64 = number_part.parse()
+    let number: f64 = number_part
+        .parse()
         .map_err(|_| Error::ConfigError(format!("Invalid number in size: {}", number_part)))?;
-    
+
     let multiplier: i64 = match unit_part.trim().to_lowercase().as_str() {
         "" | "b" => 1,
         "k" | "kb" => 1_000,
@@ -178,9 +184,14 @@ pub fn parse_size(size_str: &str) -> Result<u64> {
         "mi" | "mib" => 1_048_576,
         "gi" | "gib" => 1_073_741_824,
         "ti" | "tib" => 1_099_511_627_776,
-        _ => return Err(Error::ConfigError(format!("Unknown size unit: {}", unit_part))),
+        _ => {
+            return Err(Error::ConfigError(format!(
+                "Unknown size unit: {}",
+                unit_part
+            )))
+        }
     };
-    
+
     Ok((number * multiplier as f64) as u64)
 }
 
@@ -282,7 +293,7 @@ impl Config {
 
         Ok(flux_dir.join("config.toml"))
     }
-    
+
     /// Get default configuration content with examples
     pub fn default_config_content() -> String {
         r#"# Flux Configuration File
@@ -361,7 +372,8 @@ algorithm = "xz"
 level = 6
 threads = 1
 priority = 95
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// Load configuration from file
@@ -435,7 +447,7 @@ mod tests {
         assert_eq!(parse_size("2GiB").unwrap(), 2 * 1_073_741_824);
         assert!(parse_size("invalid").is_err());
     }
-    
+
     #[test]
     fn test_size_rules_deserialization() {
         let toml_str = r#"
@@ -451,7 +463,7 @@ mod tests {
             algorithm = "zstd"
             level = 3
         "#;
-        
+
         let config: StrategyConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.size_rules.len(), 2);
         assert_eq!(config.size_rules[0].threshold, 100 * 1_048_576);

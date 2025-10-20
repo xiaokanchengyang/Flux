@@ -17,6 +17,12 @@ pub struct TarExtractor {
     compression: Option<Algorithm>,
 }
 
+impl Default for TarExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TarExtractor {
     /// Create a new tar extractor
     pub fn new() -> Self {
@@ -37,9 +43,7 @@ impl TarExtractor {
             Some(Algorithm::Gzip) => Ok(Box::new(GzDecoder::new(file))),
             Some(Algorithm::Zstd) => Ok(Box::new(ZstdDecoder::new(file)?)),
             Some(Algorithm::Xz) => Ok(Box::new(XzDecoder::new(file))),
-            Some(Algorithm::Brotli) => {
-                Ok(Box::new(brotli::Decompressor::new(file, 4096)))
-            }
+            Some(Algorithm::Brotli) => Ok(Box::new(brotli::Decompressor::new(file, 4096))),
             Some(Algorithm::Store) => Ok(Box::new(file)),
         }
     }
@@ -50,16 +54,16 @@ impl Extractor for TarExtractor {
         let file = File::open(source)?;
         let reader = self.create_reader(file)?;
         let mut archive = Archive::new(reader);
-        
+
         // Collect all entries into a vector since we can't return the archive itself
         let mut entries = Vec::new();
-        
+
         for entry in archive.entries()? {
             match entry {
                 Ok(entry) => {
                     let path = entry.path()?.to_path_buf();
                     let header = entry.header();
-                    
+
                     entries.push(Ok(ArchiveEntry {
                         path,
                         size: header.size()?,
@@ -76,7 +80,7 @@ impl Extractor for TarExtractor {
                 Err(e) => entries.push(Err(Error::Io(e))),
             }
         }
-        
+
         Ok(Box::new(entries.into_iter()))
     }
 
@@ -90,15 +94,15 @@ impl Extractor for TarExtractor {
         let file = File::open(source)?;
         let reader = self.create_reader(file)?;
         let mut archive = Archive::new(reader);
-        
+
         // Find and extract the specific entry
         for archive_entry in archive.entries()? {
             let mut archive_entry = archive_entry?;
             let entry_path = archive_entry.path()?.to_path_buf();
-            
+
             if entry_path == entry.path {
                 let full_path = destination.join(&entry_path);
-                
+
                 // Check if file exists and handle according to options
                 if full_path.exists() && !options.overwrite {
                     return Err(Error::Io(io::Error::new(
@@ -106,12 +110,12 @@ impl Extractor for TarExtractor {
                         format!("File already exists: {:?}", full_path),
                     )));
                 }
-                
+
                 // Create parent directory if needed
                 if let Some(parent) = full_path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                
+
                 // Extract based on entry type
                 let header = archive_entry.header();
                 match header.entry_type() {
@@ -141,7 +145,7 @@ impl Extractor for TarExtractor {
                         warn!("Unsupported entry type: {:?}", header.entry_type());
                     }
                 }
-                
+
                 // Set permissions if requested
                 if options.preserve_permissions {
                     if let Some(mode) = entry.mode {
@@ -153,7 +157,7 @@ impl Extractor for TarExtractor {
                         }
                     }
                 }
-                
+
                 // Set timestamps if requested
                 if options.preserve_timestamps {
                     if let Some(mtime) = entry.mtime {
@@ -165,11 +169,11 @@ impl Extractor for TarExtractor {
                         }
                     }
                 }
-                
+
                 return Ok(());
             }
         }
-        
+
         Err(Error::NotFound(format!(
             "Entry not found in archive: {:?}",
             entry.path
@@ -190,16 +194,10 @@ impl Extractor for TarExtractor {
 
 /// Create an extractor for the given tar file based on its extension
 pub fn create_tar_extractor(path: &Path) -> Result<Box<dyn Extractor>> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
     let compression = if stem.ends_with(".tar") {
         match ext {
             "gz" => Some(Algorithm::Gzip),
@@ -211,6 +209,6 @@ pub fn create_tar_extractor(path: &Path) -> Result<Box<dyn Extractor>> {
     } else {
         None
     };
-    
+
     Ok(Box::new(TarExtractor { compression }))
 }

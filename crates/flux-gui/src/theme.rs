@@ -51,7 +51,7 @@ impl FluxTheme {
     pub fn is_dark_mode(&self) -> bool {
         matches!(self.mode, ThemeMode::Dark)
     }
-    
+
     /// Create a new light theme
     pub fn light() -> Self {
         Self {
@@ -112,7 +112,7 @@ impl FluxTheme {
     /// Get egui style from theme
     pub fn get_style(&self) -> Style {
         let mut style = Style::default();
-        
+
         // Visuals
         let mut visuals = if self.mode == ThemeMode::Dark {
             Visuals::dark()
@@ -124,78 +124,63 @@ impl FluxTheme {
         visuals.hyperlink_color = self.colors.hyperlink;
         visuals.error_fg_color = self.colors.error;
         visuals.warn_fg_color = self.colors.warning;
-        
+
         // Window styling
         visuals.window_fill = self.colors.background;
         visuals.panel_fill = self.colors.panel_bg;
         visuals.window_stroke = Stroke::new(1.0, self.colors.text_weak);
-        
+
         // Rounding
         visuals.window_rounding = Rounding::same(self.rounding);
         visuals.menu_rounding = Rounding::same(self.rounding);
         // Button rounding is set per-widget in egui 0.28
-        
+
         // Selection colors
         visuals.selection.bg_fill = self.colors.primary.linear_multiply(0.3);
-        
+
         // Widget visuals
         visuals.widgets.noninteractive.bg_fill = self.colors.panel_bg;
         visuals.widgets.noninteractive.weak_bg_fill = self.colors.panel_bg;
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, self.colors.text);
-        
+
         visuals.widgets.inactive.bg_fill = self.colors.panel_bg.linear_multiply(0.9);
         visuals.widgets.inactive.weak_bg_fill = self.colors.panel_bg.linear_multiply(0.95);
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, self.colors.text_weak);
-        
+
         visuals.widgets.hovered.bg_fill = self.colors.primary.linear_multiply(0.1);
         visuals.widgets.hovered.weak_bg_fill = self.colors.primary.linear_multiply(0.05);
         visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, self.colors.primary);
-        
+
         visuals.widgets.active.bg_fill = self.colors.primary.linear_multiply(0.2);
         visuals.widgets.active.weak_bg_fill = self.colors.primary.linear_multiply(0.1);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0, self.colors.primary);
-        
+
         style.visuals = visuals;
-        
+
         // Spacing
         style.spacing.item_spacing = egui::vec2(self.spacing, self.spacing);
         style.spacing.button_padding = egui::vec2(self.spacing, self.spacing / 2.0);
         style.spacing.menu_margin = egui::Margin::same(self.spacing);
         style.spacing.indent = self.spacing * 2.5;
-        
+
         // Text styles with custom fonts if available
         let mut text_styles = BTreeMap::new();
-        
+
         // Base font sizes
         let small_size = 12.0;
         let body_size = 14.0;
         let button_size = 14.0;
         let heading_size = 20.0;
         let monospace_size = 13.0;
-        
-        text_styles.insert(
-            TextStyle::Small,
-            FontId::proportional(small_size),
-        );
-        text_styles.insert(
-            TextStyle::Body,
-            FontId::proportional(body_size),
-        );
-        text_styles.insert(
-            TextStyle::Button,
-            FontId::proportional(button_size),
-        );
-        text_styles.insert(
-            TextStyle::Heading,
-            FontId::proportional(heading_size),
-        );
-        text_styles.insert(
-            TextStyle::Monospace,
-            FontId::monospace(monospace_size),
-        );
-        
+
+        text_styles.insert(TextStyle::Small, FontId::proportional(small_size));
+        text_styles.insert(TextStyle::Body, FontId::proportional(body_size));
+        text_styles.insert(TextStyle::Button, FontId::proportional(button_size));
+        text_styles.insert(TextStyle::Heading, FontId::proportional(heading_size));
+        text_styles.insert(TextStyle::Monospace, FontId::monospace(monospace_size));
+
         style.text_styles = text_styles;
-        
+
         style
     }
 
@@ -205,14 +190,14 @@ impl FluxTheme {
             .fill(self.colors.primary)
             .rounding(Rounding::same(self.rounding))
     }
-    
+
     /// Create a secondary button with theme styling
     pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button {
         egui::Button::new(text)
             .fill(self.colors.secondary)
             .rounding(Rounding::same(self.rounding))
     }
-    
+
     /// Style a button widget (modifies UI visuals temporarily)
     pub fn style_button(&self, ui: &mut egui::Ui, is_primary: bool) {
         let button_color = if is_primary {
@@ -220,7 +205,7 @@ impl FluxTheme {
         } else {
             self.colors.secondary
         };
-        
+
         ui.visuals_mut().widgets.inactive.bg_fill = button_color;
         ui.visuals_mut().widgets.inactive.fg_stroke = Stroke::new(1.0, Color32::WHITE);
         ui.visuals_mut().widgets.hovered.bg_fill = button_color.linear_multiply(1.2);

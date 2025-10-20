@@ -1,14 +1,14 @@
 //! Archive operations module
 
-pub mod tar;
-pub mod zip;
-pub mod sevenz;
-pub mod incremental;
 pub mod extractor;
-pub mod tar_extractor;
-pub mod zip_extractor;
-pub mod sevenz_extractor;
+pub mod incremental;
 pub mod secure_extractor;
+pub mod sevenz;
+pub mod sevenz_extractor;
+pub mod tar;
+pub mod tar_extractor;
+pub mod zip;
+pub mod zip_extractor;
 
 use crate::strategy::{Algorithm, CompressionStrategy};
 use crate::{Error, Result};
@@ -157,10 +157,7 @@ pub fn create_secure_extractor(path: &Path) -> Result<Box<dyn extractor::Extract
 /// Internal function to create extractor with optional security wrapper
 fn create_extractor_inner(path: &Path, secure: bool) -> Result<Box<dyn extractor::Extractor>> {
     // Detect format by extension
-    let ext = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
     // Check for double extensions
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
@@ -178,9 +175,7 @@ fn create_extractor_inner(path: &Path, secure: bool) -> Result<Box<dyn extractor
         "tar.zst" | "tzst" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Zstd,
         )),
-        "tar.xz" | "txz" => Box::new(tar_extractor::TarExtractor::with_compression(
-            Algorithm::Xz,
-        )),
+        "tar.xz" | "txz" => Box::new(tar_extractor::TarExtractor::with_compression(Algorithm::Xz)),
         "tar.br" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Brotli,
         )),
@@ -192,9 +187,9 @@ fn create_extractor_inner(path: &Path, secure: bool) -> Result<Box<dyn extractor
             "zst" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Zstd),
             ),
-            "xz" if stem.ends_with(".tar") => Box::new(
-                tar_extractor::TarExtractor::with_compression(Algorithm::Xz),
-            ),
+            "xz" if stem.ends_with(".tar") => {
+                Box::new(tar_extractor::TarExtractor::with_compression(Algorithm::Xz))
+            }
             "br" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Brotli),
             ),
@@ -203,9 +198,11 @@ fn create_extractor_inner(path: &Path, secure: bool) -> Result<Box<dyn extractor
             _ => return Err(Error::UnsupportedFormat(ext.to_string())),
         },
     };
-    
+
     if secure {
-        Ok(Box::new(secure_extractor::SecureExtractor::new(base_extractor)))
+        Ok(Box::new(secure_extractor::SecureExtractor::new(
+            base_extractor,
+        )))
     } else {
         Ok(base_extractor)
     }
@@ -521,50 +518,49 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 /// Hoist the contents of a single subdirectory to the parent directory
-/// 
+///
 /// This function checks if the output directory contains exactly one subdirectory,
 /// and if so, moves all contents of that subdirectory up one level and removes
 /// the now-empty subdirectory.
 pub fn hoist_single_directory(output_dir: &Path) -> Result<()> {
     use std::fs;
-    
+
     // Ensure the output directory exists
     if !output_dir.exists() {
         return Ok(());
     }
 
     // Read the directory entries
-    let entries: Vec<_> = fs::read_dir(output_dir)?
-        .filter_map(|e| e.ok())
-        .collect();
+    let entries: Vec<_> = fs::read_dir(output_dir)?.filter_map(|e| e.ok()).collect();
 
     // Check if there's exactly one entry and it's a directory
     if entries.len() == 1 {
         let entry = &entries[0];
         let entry_path = entry.path();
-        
+
         if entry_path.is_dir() {
             info!("Found single directory to hoist: {:?}", entry_path);
-            
+
             // Move all contents from the subdirectory to the parent
             let subdir_entries = fs::read_dir(&entry_path)?;
-            
+
             for sub_entry in subdir_entries {
                 let sub_entry = sub_entry?;
                 let source = sub_entry.path();
-                let dest_name = source.file_name()
+                let dest_name = source
+                    .file_name()
                     .ok_or_else(|| Error::Other("Invalid filename".to_string()))?;
                 let dest = output_dir.join(dest_name);
-                
+
                 info!("Moving {:?} to {:?}", source, dest);
                 fs::rename(&source, &dest)?;
             }
-            
+
             // Remove the now-empty directory
             fs::remove_dir(&entry_path)?;
             info!("Removed empty directory: {:?}", entry_path);
         }
     }
-    
+
     Ok(())
 }

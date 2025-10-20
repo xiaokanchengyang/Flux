@@ -1,14 +1,14 @@
 //! Testing utilities and fixtures for flux
-//! 
+//!
 //! This crate provides common testing utilities, fixtures, and helpers
 //! for testing flux-based applications and libraries.
 
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use anyhow::Result;
 
-pub mod fixtures;
 pub mod assertions;
+pub mod fixtures;
 pub mod helpers;
 
 /// Creates a temporary test directory with cleanup on drop

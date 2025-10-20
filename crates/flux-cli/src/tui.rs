@@ -108,13 +108,7 @@ impl App {
                 .entries
                 .iter()
                 .enumerate()
-                .filter(|(_, entry)| {
-                    entry
-                        .path
-                        .to_string_lossy()
-                        .to_lowercase()
-                        .contains(&query)
-                })
+                .filter(|(_, entry)| entry.path.to_string_lossy().to_lowercase().contains(&query))
                 .map(|(i, _)| i)
                 .collect();
         }
@@ -133,7 +127,7 @@ impl App {
         if self.filtered_entries.is_empty() {
             return None;
         }
-        
+
         self.filtered_entries
             .get(self.selected)
             .and_then(|&idx| self.entries.get(idx))
@@ -217,10 +211,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         }
                     }
                     KeyCode::Char(c) => {
-                        if !app.search_query.is_empty() || key.code == KeyCode::Char('/') {
-                            if c != '/' {
-                                app.update_search(c);
-                            }
+                        if (!app.search_query.is_empty() || key.code == KeyCode::Char('/'))
+                            && c != '/'
+                        {
+                            app.update_search(c);
                         }
                     }
                     _ => {}
@@ -236,9 +230,9 @@ fn ui(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints(
             [
-                Constraint::Length(3),  // Header
-                Constraint::Min(0),     // Main content
-                Constraint::Length(3),  // Footer
+                Constraint::Length(3), // Header
+                Constraint::Min(0),    // Main content
+                Constraint::Length(3), // Footer
             ]
             .as_ref(),
         )
@@ -294,7 +288,9 @@ fn render_file_list(f: &mut Frame, app: &App, area: Rect) {
         .filter_map(|&idx| app.entries.get(idx))
         .map(|entry| {
             let style = if entry.is_dir {
-                Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD)
             } else if entry.is_symlink {
                 Style::default().fg(Color::Cyan)
             } else {
@@ -396,13 +392,10 @@ fn render_file_details(f: &mut Frame, app: &App, area: Rect) {
 
     // Modified time
     if let Some(mtime) = selected.mtime {
-        let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(mtime, 0)
-            .unwrap_or_default();
+        let datetime =
+            chrono::DateTime::<chrono::Utc>::from_timestamp(mtime, 0).unwrap_or_default();
         lines.push(Line::from(vec![
-            Span::styled(
-                "Modified: ",
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("Modified: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(datetime.format("%Y-%m-%d %H:%M:%S").to_string()),
         ]));
     }
@@ -435,9 +428,10 @@ fn render_help(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Navigation:", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Navigation:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  ↑/k         - Move up"),
         Line::from("  ↓/j         - Move down"),
         Line::from("  PageUp      - Move up 10 items"),
@@ -445,23 +439,26 @@ fn render_help(f: &mut Frame, area: Rect) {
         Line::from("  Home        - Go to first item"),
         Line::from("  End         - Go to last item"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Search:", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Search:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  /           - Start search"),
         Line::from("  <text>      - Type to search"),
         Line::from("  Backspace   - Remove last character"),
         Line::from("  Esc         - Clear search"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Other:", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Other:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  ?/F1        - Toggle this help"),
         Line::from("  q           - Quit"),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("File Icons:", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "File Icons:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from("  📁          - Directory"),
         Line::from("  📄          - Regular file"),
         Line::from("  🔗          - Symbolic link"),

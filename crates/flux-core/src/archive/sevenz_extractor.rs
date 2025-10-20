@@ -11,6 +11,12 @@ use std::path::Path;
 /// 7z extractor
 pub struct SevenZExtractor;
 
+impl Default for SevenZExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SevenZExtractor {
     /// Create a new 7z extractor
     pub fn new() -> Self {
@@ -63,7 +69,7 @@ pub fn extract_7z_fallback<P: AsRef<Path>, Q: AsRef<Path>>(
     reader
         .for_each_entries(|entry, reader| {
             let path = output_dir.join(&entry.name);
-            
+
             if entry.is_directory {
                 fs::create_dir_all(&path)?;
             } else {
@@ -71,11 +77,11 @@ pub fn extract_7z_fallback<P: AsRef<Path>, Q: AsRef<Path>>(
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                
+
                 let mut output_file = File::create(&path)?;
                 io::copy(reader, &mut output_file)?;
             }
-            
+
             Ok(true) // Continue extraction
         })
         .map_err(|e| Error::Archive(format!("Failed to extract 7z archive: {}", e)))?;

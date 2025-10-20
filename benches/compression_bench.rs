@@ -1,6 +1,6 @@
 //! Compression performance benchmarks
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use flux_core::archive::{pack_with_strategy, PackOptions};
 use flux_core::strategy::Algorithm;
 use rand::{Rng, SeedableRng};
@@ -12,11 +12,11 @@ use tempfile::TempDir;
 /// Generate test data with specified characteristics
 fn generate_test_data(dir: &TempDir, file_count: usize, file_size: usize, compressible: bool) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-    
+
     for i in 0..file_count {
         let file_path = dir.path().join(format!("file_{}.dat", i));
         let mut file = File::create(file_path).unwrap();
-        
+
         if compressible {
             // Generate compressible data (repeated patterns)
             let pattern = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit. ";
@@ -37,14 +37,14 @@ fn generate_test_data(dir: &TempDir, file_count: usize, file_size: usize, compre
 fn bench_small_files(c: &mut Criterion) {
     let mut group = c.benchmark_group("small_files");
     group.sample_size(10);
-    
+
     let algorithms = vec![
         ("zstd", Algorithm::Zstd),
         ("gzip", Algorithm::Gzip),
         ("xz", Algorithm::Xz),
         ("store", Algorithm::Store),
     ];
-    
+
     for (name, algorithm) in algorithms {
         group.bench_with_input(
             BenchmarkId::new("pack_1000_small_files", name),
@@ -66,19 +66,20 @@ fn bench_small_files(c: &mut Criterion) {
                             force_compress: false,
                             follow_symlinks: false,
                         };
-                        
+
                         pack_with_strategy(
                             black_box(input_dir.path()),
                             black_box(&output),
                             None,
                             options,
-                        ).unwrap();
+                        )
+                        .unwrap();
                     },
                 );
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -86,13 +87,13 @@ fn bench_small_files(c: &mut Criterion) {
 fn bench_large_file(c: &mut Criterion) {
     let mut group = c.benchmark_group("large_file");
     group.sample_size(10);
-    
+
     let algorithms = vec![
         ("zstd", Algorithm::Zstd),
         ("gzip", Algorithm::Gzip),
         ("xz", Algorithm::Xz),
     ];
-    
+
     for (name, algorithm) in algorithms {
         group.bench_with_input(
             BenchmarkId::new("pack_100mb_file", name),
@@ -114,19 +115,20 @@ fn bench_large_file(c: &mut Criterion) {
                             force_compress: false,
                             follow_symlinks: false,
                         };
-                        
+
                         pack_with_strategy(
                             black_box(input_dir.path()),
                             black_box(&output),
                             None,
                             options,
-                        ).unwrap();
+                        )
+                        .unwrap();
                     },
                 );
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -134,43 +136,40 @@ fn bench_large_file(c: &mut Criterion) {
 fn bench_compression_levels(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression_levels");
     group.sample_size(10);
-    
+
     let levels = vec![1, 3, 6, 9];
-    
+
     for level in levels {
-        group.bench_with_input(
-            BenchmarkId::new("zstd_10mb", level),
-            &level,
-            |b, &level| {
-                b.iter_with_setup(
-                    || {
-                        let temp_dir = TempDir::new().unwrap();
-                        generate_test_data(&temp_dir, 1, 10 * 1024 * 1024, true); // 10MB file
-                        (temp_dir, TempDir::new().unwrap())
-                    },
-                    |(input_dir, output_dir)| {
-                        let output = output_dir.path().join("archive.tar.zst");
-                        let options = PackOptions {
-                            smart: false,
-                            algorithm: Some("zstd".to_string()),
-                            level: Some(level),
-                            threads: Some(4),
-                            force_compress: false,
-                            follow_symlinks: false,
-                        };
-                        
-                        pack_with_strategy(
-                            black_box(input_dir.path()),
-                            black_box(&output),
-                            None,
-                            options,
-                        ).unwrap();
-                    },
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("zstd_10mb", level), &level, |b, &level| {
+            b.iter_with_setup(
+                || {
+                    let temp_dir = TempDir::new().unwrap();
+                    generate_test_data(&temp_dir, 1, 10 * 1024 * 1024, true); // 10MB file
+                    (temp_dir, TempDir::new().unwrap())
+                },
+                |(input_dir, output_dir)| {
+                    let output = output_dir.path().join("archive.tar.zst");
+                    let options = PackOptions {
+                        smart: false,
+                        algorithm: Some("zstd".to_string()),
+                        level: Some(level),
+                        threads: Some(4),
+                        force_compress: false,
+                        follow_symlinks: false,
+                    };
+
+                    pack_with_strategy(
+                        black_box(input_dir.path()),
+                        black_box(&output),
+                        None,
+                        options,
+                    )
+                    .unwrap();
+                },
+            );
+        });
     }
-    
+
     group.finish();
 }
 
@@ -178,7 +177,7 @@ fn bench_compression_levels(c: &mut Criterion) {
 fn bench_smart_strategy(c: &mut Criterion) {
     let mut group = c.benchmark_group("smart_strategy");
     group.sample_size(10);
-    
+
     // Test with mixed content
     group.bench_function("smart_mixed_content", |b| {
         b.iter_with_setup(
@@ -205,17 +204,18 @@ fn bench_smart_strategy(c: &mut Criterion) {
                     force_compress: false,
                     follow_symlinks: false,
                 };
-                
+
                 pack_with_strategy(
                     black_box(input_dir.path()),
                     black_box(&output),
                     None,
                     options,
-                ).unwrap();
+                )
+                .unwrap();
             },
         );
     });
-    
+
     group.bench_function("manual_zstd_mixed_content", |b| {
         b.iter_with_setup(
             || {
@@ -241,22 +241,23 @@ fn bench_smart_strategy(c: &mut Criterion) {
                     force_compress: false,
                     follow_symlinks: false,
                 };
-                
+
                 pack_with_strategy(
                     black_box(input_dir.path()),
                     black_box(&output),
                     None,
                     options,
-                ).unwrap();
+                )
+                .unwrap();
             },
         );
     });
-    
+
     group.finish();
 }
 
 criterion_group!(
-    benches, 
+    benches,
     bench_small_files,
     bench_large_file,
     bench_compression_levels,

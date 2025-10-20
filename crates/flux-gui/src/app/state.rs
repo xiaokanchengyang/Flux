@@ -1,13 +1,17 @@
 //! Application state management
 
 use crossbeam_channel::{Receiver, Sender};
-use std::{thread, path::PathBuf, sync::{Arc, atomic::AtomicBool}};
 use egui_notify::Toasts;
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+    thread,
+};
 
+use crate::layout::Sidebar;
 use crate::task::TaskCommand;
 use crate::task::ToUi;
 use crate::theme::FluxTheme;
-use crate::layout::Sidebar;
 use crate::views::BrowserState;
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +128,7 @@ impl FluxApp {
             AppPersistence::default()
         }
     }
-    
+
     /// Save persistent state to storage
     pub fn save_persistence(&self, storage: &mut dyn eframe::Storage) {
         let persistence = AppPersistence {
@@ -133,9 +137,12 @@ impl FluxApp {
             show_log_panel: self.show_log_panel,
             preferred_format: Some(self.compression_format.clone()),
             dark_mode: self.theme.is_dark_mode(),
-            last_output_dir: self.output_path.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf())),
+            last_output_dir: self
+                .output_path
+                .as_ref()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf())),
         };
-        
+
         if let Ok(data) = serde_json::to_string(&persistence) {
             storage.set_string(eframe::APP_KEY, data);
         }

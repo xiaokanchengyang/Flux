@@ -1,15 +1,13 @@
 //! Helper utilities for flux testing
 
+use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
-use anyhow::Result;
 
 /// Runs a flux CLI command and returns the output
 pub fn run_flux_cli(args: &[&str]) -> Result<std::process::Output> {
-    let output = Command::new("flux")
-        .args(args)
-        .output()?;
-    
+    let output = Command::new("flux").args(args).output()?;
+
     Ok(output)
 }
 
@@ -21,14 +19,14 @@ pub fn create_test_archive(input_dir: &Path, output_file: &Path) -> Result<()> {
         "-o",
         output_file.to_str().unwrap(),
     ])?;
-    
+
     if !output.status.success() {
         anyhow::bail!(
             "Failed to create archive: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    
+
     Ok(())
 }
 
@@ -40,14 +38,14 @@ pub fn extract_test_archive(archive_file: &Path, output_dir: &Path) -> Result<()
         "-o",
         output_dir.to_str().unwrap(),
     ])?;
-    
+
     if !output.status.success() {
         anyhow::bail!(
             "Failed to extract archive: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    
+
     Ok(())
 }
 

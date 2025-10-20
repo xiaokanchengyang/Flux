@@ -1,6 +1,6 @@
 //! Extraction performance benchmarks
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use flux_core::archive::{extract, pack_with_strategy, PackOptions};
 use flux_core::strategy::Algorithm;
 use rand::{Rng, SeedableRng};
@@ -19,18 +19,18 @@ fn create_test_archive(
 ) {
     let temp_dir = TempDir::new().unwrap();
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-    
+
     // Generate test files
     for i in 0..file_count {
         let file_path = temp_dir.path().join(format!("file_{}.dat", i));
         let mut file = File::create(file_path).unwrap();
-        
+
         // Generate compressible data
         let pattern = format!("Test data for file {} - Lorem ipsum dolor sit amet. ", i);
         let data = pattern.repeat(file_size / pattern.len());
         file.write_all(data.as_bytes()).unwrap();
     }
-    
+
     // Pack into archive
     let options = PackOptions {
         smart: false,
@@ -40,7 +40,7 @@ fn create_test_archive(
         force_compress: false,
         follow_symlinks: false,
     };
-    
+
     pack_with_strategy(temp_dir.path(), archive_path, None, options).unwrap();
 }
 
@@ -48,14 +48,14 @@ fn create_test_archive(
 fn bench_extract_algorithms(c: &mut Criterion) {
     let mut group = c.benchmark_group("extract_algorithms");
     group.sample_size(10);
-    
+
     let algorithms = vec![
         ("tar", Algorithm::Store),
         ("tar.gz", Algorithm::Gzip),
         ("tar.zst", Algorithm::Zstd),
         ("tar.xz", Algorithm::Xz),
     ];
-    
+
     for (ext, algorithm) in algorithms {
         group.bench_with_input(
             BenchmarkId::new("extract_100_files", ext),
@@ -70,16 +70,13 @@ fn bench_extract_algorithms(c: &mut Criterion) {
                     },
                     |(_archive_dir, archive_path)| {
                         let output_dir = TempDir::new().unwrap();
-                        extract(
-                            black_box(&archive_path),
-                            black_box(output_dir.path()),
-                        ).unwrap();
+                        extract(black_box(&archive_path), black_box(output_dir.path())).unwrap();
                     },
                 );
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -87,7 +84,7 @@ fn bench_extract_algorithms(c: &mut Criterion) {
 fn bench_extract_large_archive(c: &mut Criterion) {
     let mut group = c.benchmark_group("extract_large_archive");
     group.sample_size(5);
-    
+
     group.bench_function("extract_1000_files_zstd", |b| {
         b.iter_with_setup(
             || {
@@ -98,14 +95,11 @@ fn bench_extract_large_archive(c: &mut Criterion) {
             },
             |(_archive_dir, archive_path)| {
                 let output_dir = TempDir::new().unwrap();
-                extract(
-                    black_box(&archive_path),
-                    black_box(output_dir.path()),
-                ).unwrap();
+                extract(black_box(&archive_path), black_box(output_dir.path())).unwrap();
             },
         );
     });
-    
+
     group.finish();
 }
 
@@ -113,7 +107,7 @@ fn bench_extract_large_archive(c: &mut Criterion) {
 fn bench_extract_parallelism(c: &mut Criterion) {
     let mut group = c.benchmark_group("extract_parallelism");
     group.sample_size(5);
-    
+
     // This benchmark would require implementing parallel extraction support
     // For now, we'll just benchmark the current implementation
     group.bench_function("extract_zstd_current", |b| {
@@ -126,14 +120,11 @@ fn bench_extract_parallelism(c: &mut Criterion) {
             },
             |(_archive_dir, archive_path)| {
                 let output_dir = TempDir::new().unwrap();
-                extract(
-                    black_box(&archive_path),
-                    black_box(output_dir.path()),
-                ).unwrap();
+                extract(black_box(&archive_path), black_box(output_dir.path())).unwrap();
             },
         );
     });
-    
+
     group.finish();
 }
 

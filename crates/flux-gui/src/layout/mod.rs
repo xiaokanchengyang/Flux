@@ -1,9 +1,9 @@
 //! Modern layout system for Flux GUI with sidebar navigation
 
-use egui::{Context, Ui, Color32, vec2, Rect, Response, Sense, Id};
-use egui_phosphor::regular;
 use crate::app::AppView;
 use crate::theme::FluxTheme;
+use egui::{vec2, Color32, Context, Id, Rect, Response, Sense, Ui};
+use egui_phosphor::regular;
 
 /// Sidebar navigation item
 #[derive(Debug, Clone, PartialEq)]
@@ -80,13 +80,13 @@ impl Sidebar {
     pub fn toggle_collapse(&mut self) {
         self.collapsed = !self.collapsed;
     }
-    
+
     /// Get current width based on collapsed state and animation
     pub fn current_width(&self) -> f32 {
         let target_width = if self.collapsed { 60.0 } else { self.width };
         target_width * self.animation_state + 60.0 * (1.0 - self.animation_state)
     }
-    
+
     /// Draw the sidebar
     pub fn show(
         &mut self,
@@ -98,90 +98,78 @@ impl Sidebar {
     ) {
         // Animate width transition
         let animation_id = ui.make_persistent_id("sidebar_animation");
-        self.animation_state = ctx.animate_bool_with_time(
-            animation_id,
-            !self.collapsed,
-            0.2
-        );
-        
+        self.animation_state = ctx.animate_bool_with_time(animation_id, !self.collapsed, 0.2);
+
         let sidebar_width = self.current_width();
-        
+
         // Sidebar background
         let available_rect = ui.available_rect_before_wrap();
         let sidebar_rect = Rect::from_min_size(
             available_rect.min,
             vec2(sidebar_width, available_rect.height()),
         );
-        
-        ui.painter().rect_filled(
-            sidebar_rect,
-            0.0,
-            theme.colors.panel_bg.gamma_multiply(0.8),
-        );
-        
+
+        ui.painter()
+            .rect_filled(sidebar_rect, 0.0, theme.colors.panel_bg.gamma_multiply(0.8));
+
         // Draw sidebar content
         ui.allocate_ui_with_layout(
             vec2(sidebar_width, available_rect.height()),
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
                 ui.add_space(10.0);
-                
+
                 // Logo/Header area
                 ui.horizontal(|ui| {
                     ui.add_space(if self.collapsed { 15.0 } else { 20.0 });
-                    
+
                     if !self.collapsed {
                         ui.heading("Flux");
                     } else {
                         ui.label(egui::RichText::new("F").size(20.0).strong());
                     }
-                    
+
                     // Collapse button
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(10.0);
                         let collapse_btn = ui.add(
                             egui::Button::new(
                                 egui::RichText::new(if self.collapsed { "▶" } else { "◀" })
-                                    .size(12.0)
+                                    .size(12.0),
                             )
                             .frame(false)
-                            .min_size(vec2(20.0, 20.0))
+                            .min_size(vec2(20.0, 20.0)),
                         );
-                        
+
                         if collapse_btn.clicked() {
                             self.toggle_collapse();
                         }
                     });
                 });
-                
+
                 ui.add_space(20.0);
                 ui.separator();
                 ui.add_space(10.0);
-                
+
                 // Navigation items
                 for item in items {
                     let is_selected = current_view == &item.view;
-                    
+
                     ui.horizontal(|ui| {
-                        let item_response = self.draw_nav_item(
-                            ui,
-                            item,
-                            is_selected,
-                            theme,
-                        );
-                        
+                        let item_response = self.draw_nav_item(ui, item, is_selected, theme);
+
                         if item_response.clicked() {
                             *current_view = item.view;
                         }
                     });
-                    
+
                     ui.add_space(5.0);
                 }
-                
+
                 // Spacer
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.add_space(20.0);
-                    
+
                     // Settings button at bottom
                     ui.horizontal(|ui| {
                         let settings_response = self.draw_nav_item(
@@ -196,7 +184,7 @@ impl Sidebar {
                             false,
                             theme,
                         );
-                        
+
                         if settings_response.clicked() {
                             // TODO: Open settings dialog
                         }
@@ -205,7 +193,7 @@ impl Sidebar {
             },
         );
     }
-    
+
     /// Draw a single navigation item
     fn draw_nav_item(
         &self,
@@ -216,18 +204,14 @@ impl Sidebar {
     ) -> Response {
         let available_width = ui.available_width();
         let item_height = 40.0;
-        let (rect, response) = ui.allocate_exact_size(
-            vec2(available_width, item_height),
-            Sense::click(),
-        );
-        
+        let (rect, response) =
+            ui.allocate_exact_size(vec2(available_width, item_height), Sense::click());
+
         // Hover animation
-        let hover_animation = ui.ctx().animate_bool_with_time(
-            response.id,
-            response.hovered() || is_selected,
-            0.15
-        );
-        
+        let hover_animation =
+            ui.ctx()
+                .animate_bool_with_time(response.id, response.hovered() || is_selected, 0.15);
+
         // Background
         if is_selected {
             ui.painter().rect_filled(
@@ -235,43 +219,37 @@ impl Sidebar {
                 theme.rounding,
                 theme.colors.primary.gamma_multiply(0.2),
             );
-            
+
             // Selection indicator
-            let indicator_rect = Rect::from_min_size(
-                rect.min,
-                vec2(4.0, rect.height()),
-            );
-            ui.painter().rect_filled(
-                indicator_rect,
-                2.0,
-                theme.colors.primary,
-            );
+            let indicator_rect = Rect::from_min_size(rect.min, vec2(4.0, rect.height()));
+            ui.painter()
+                .rect_filled(indicator_rect, 2.0, theme.colors.primary);
         } else if hover_animation > 0.0 {
             ui.painter().rect_filled(
                 rect,
                 theme.rounding,
-                theme.colors.panel_bg.lerp_to_gamma(
-                    theme.colors.primary.gamma_multiply(0.1),
-                    hover_animation,
-                ),
+                theme
+                    .colors
+                    .panel_bg
+                    .lerp_to_gamma(theme.colors.primary.gamma_multiply(0.1), hover_animation),
             );
         }
-        
+
         // Content
         let icon_size = 20.0;
         let padding = 20.0;
         let icon_pos = rect.min + vec2(padding, (item_height - icon_size) / 2.0);
-        
+
         // Icon color
         let icon_color = if is_selected {
             theme.colors.primary
         } else {
-            theme.colors.text.lerp_to_gamma(
-                theme.colors.primary,
-                hover_animation * 0.5,
-            )
+            theme
+                .colors
+                .text
+                .lerp_to_gamma(theme.colors.primary, hover_animation * 0.5)
         };
-        
+
         // Draw icon
         ui.painter().text(
             icon_pos + vec2(icon_size / 2.0, icon_size / 2.0),
@@ -280,7 +258,7 @@ impl Sidebar {
             egui::FontId::proportional(icon_size),
             icon_color,
         );
-        
+
         // Draw label if not collapsed
         if !self.collapsed {
             let label_pos = icon_pos + vec2(icon_size + 15.0, icon_size / 2.0);
@@ -289,10 +267,14 @@ impl Sidebar {
                 egui::Align2::LEFT_CENTER,
                 item.label,
                 egui::FontId::proportional(14.0),
-                if is_selected { theme.colors.text } else { theme.colors.text_weak },
+                if is_selected {
+                    theme.colors.text
+                } else {
+                    theme.colors.text_weak
+                },
             );
         }
-        
+
         // Tooltip when collapsed
         if self.collapsed {
             response.on_hover_text(item.label)
@@ -324,7 +306,7 @@ impl Card {
             })
             .show(ui, add_contents)
     }
-    
+
     /// Draw a card with hover effect
     pub fn show_interactive<R>(
         ui: &mut Ui,
@@ -335,18 +317,16 @@ impl Card {
         let id = id.into();
         let rect = ui.available_rect_before_wrap();
         let response = ui.interact(rect, id, Sense::hover());
-        
-        let hover_animation = ui.ctx().animate_bool_with_time(
-            id,
-            response.hovered(),
-            0.2
-        );
-        
+
+        let hover_animation = ui.ctx().animate_bool_with_time(id, response.hovered(), 0.2);
+
         egui::Frame::none()
-            .fill(theme.colors.panel_bg.lerp_to_gamma(
-                theme.colors.primary.gamma_multiply(0.05),
-                hover_animation,
-            ))
+            .fill(
+                theme
+                    .colors
+                    .panel_bg
+                    .lerp_to_gamma(theme.colors.primary.gamma_multiply(0.05), hover_animation),
+            )
             .rounding(theme.rounding * 2.0)
             .inner_margin(egui::Margin::same(16.0))
             .shadow(egui::epaint::Shadow {
@@ -369,7 +349,7 @@ pub fn draw_file_card(
     on_remove: impl FnOnce(),
 ) {
     let card_id = ui.make_persistent_id(("file_card", index));
-    
+
     Card::show_interactive(ui, theme, card_id, |ui, hover| {
         ui.horizontal(|ui| {
             // File icon
@@ -383,50 +363,50 @@ pub fn draw_file_card(
                     _ => regular::FILE,
                 }
             };
-            
+
             ui.label(
                 egui::RichText::new(icon)
                     .size(32.0)
-                    .color(theme.colors.primary.gamma_multiply(0.8 + hover * 0.2))
+                    .color(theme.colors.primary.gamma_multiply(0.8 + hover * 0.2)),
             );
-            
+
             ui.add_space(12.0);
-            
+
             // File info
             ui.vertical(|ui| {
                 ui.label(
                     egui::RichText::new(
                         path.file_name()
                             .and_then(|n| n.to_str())
-                            .unwrap_or("Unknown")
+                            .unwrap_or("Unknown"),
                     )
-                    .strong()
+                    .strong(),
                 );
-                
+
                 let size_text = format_file_size(size);
                 ui.label(
                     egui::RichText::new(size_text)
                         .size(12.0)
-                        .color(theme.colors.text_weak)
+                        .color(theme.colors.text_weak),
                 );
             });
-            
+
             // Remove button
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let remove_btn = ui.add(
                     egui::Button::new(
                         egui::RichText::new(regular::X)
                             .size(16.0)
-                            .color(theme.colors.error.gamma_multiply(0.8 + hover * 0.2))
+                            .color(theme.colors.error.gamma_multiply(0.8 + hover * 0.2)),
                     )
                     .frame(false)
-                    .min_size(vec2(24.0, 24.0))
+                    .min_size(vec2(24.0, 24.0)),
                 );
-                
+
                 if remove_btn.clicked() {
                     on_remove();
                 }
-                
+
                 remove_btn.on_hover_text("Remove from list");
             });
         });
@@ -438,12 +418,12 @@ fn format_file_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     let mut size = bytes as f64;
     let mut unit_index = 0;
-    
+
     while size >= 1024.0 && unit_index < UNITS.len() - 1 {
         size /= 1024.0;
         unit_index += 1;
     }
-    
+
     if unit_index == 0 {
         format!("{} {}", size as u64, UNITS[unit_index])
     } else {

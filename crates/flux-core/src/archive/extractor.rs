@@ -45,7 +45,7 @@ pub struct ExtractEntryOptions {
 pub trait Extractor: Send + Sync {
     /// Get an iterator over all entries in the archive without extracting
     fn entries(&self, source: &Path) -> Result<Box<dyn Iterator<Item = Result<ArchiveEntry>>>>;
-    
+
     /// Extract a single entry to the specified destination
     fn extract_entry(
         &self,
@@ -54,7 +54,7 @@ pub trait Extractor: Send + Sync {
         destination: &Path,
         options: ExtractEntryOptions,
     ) -> Result<()>;
-    
+
     /// Get the format name for this extractor
     fn format_name(&self) -> &'static str;
 }

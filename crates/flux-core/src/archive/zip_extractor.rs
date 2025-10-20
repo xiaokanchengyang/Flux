@@ -11,6 +11,12 @@ use zip::ZipArchive;
 /// Zip extractor
 pub struct ZipExtractor;
 
+impl Default for ZipExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ZipExtractor {
     /// Create a new zip extractor
     pub fn new() -> Self {
@@ -22,15 +28,15 @@ impl Extractor for ZipExtractor {
     fn entries(&self, source: &Path) -> Result<Box<dyn Iterator<Item = Result<ArchiveEntry>>>> {
         let file = File::open(source)?;
         let mut archive = ZipArchive::new(file)?;
-        
+
         let mut entries = Vec::new();
-        
+
         for i in 0..archive.len() {
             match archive.by_index(i) {
                 Ok(file) => {
                     let path = PathBuf::from(file.name());
                     let _comment = file.comment();
-                    
+
                     entries.push(Ok(ArchiveEntry {
                         path,
                         size: file.size(),
@@ -44,12 +50,11 @@ impl Extractor for ZipExtractor {
                             let hour = dt.hour() as i64;
                             let minute = dt.minute() as i64;
                             let second = dt.second() as i64;
-                            
+
                             // Simple conversion - may not be perfectly accurate
                             let days_since_epoch = (year - 1970) * 365 + (month - 1) * 30 + day;
-                            let seconds = days_since_epoch * 86400 + 
-                                         (hour * 3600 + minute * 60 + second);
-                            seconds
+
+                            days_since_epoch * 86400 + (hour * 3600 + minute * 60 + second)
                         }),
                         is_dir: file.is_dir(),
                         is_symlink: false, // ZIP doesn't directly support symlinks
@@ -61,7 +66,7 @@ impl Extractor for ZipExtractor {
                 Err(e) => entries.push(Err(Error::Zip(e.to_string()))),
             }
         }
-        
+
         Ok(Box::new(entries.into_iter()))
     }
 
@@ -74,15 +79,15 @@ impl Extractor for ZipExtractor {
     ) -> Result<()> {
         let file = File::open(source)?;
         let mut archive = ZipArchive::new(file)?;
-        
+
         // Find the entry by path
         for i in 0..archive.len() {
             let mut zip_file = archive.by_index(i)?;
             let zip_path = PathBuf::from(zip_file.name());
-            
+
             if zip_path == entry.path {
                 let full_path = destination.join(&entry.path);
-                
+
                 // Check if file exists and handle according to options
                 if full_path.exists() && !options.overwrite {
                     return Err(Error::Io(io::Error::new(
@@ -90,12 +95,12 @@ impl Extractor for ZipExtractor {
                         format!("File already exists: {:?}", full_path),
                     )));
                 }
-                
+
                 // Create parent directory if needed
                 if let Some(parent) = full_path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                
+
                 // Extract based on entry type
                 if zip_file.is_dir() {
                     fs::create_dir_all(&full_path)?;
@@ -103,7 +108,7 @@ impl Extractor for ZipExtractor {
                     let mut output_file = File::create(&full_path)?;
                     io::copy(&mut zip_file, &mut output_file)?;
                 }
-                
+
                 // Set permissions if requested and available
                 if options.preserve_permissions {
                     #[cfg(unix)]
@@ -115,7 +120,7 @@ impl Extractor for ZipExtractor {
                         }
                     }
                 }
-                
+
                 // Set timestamps if requested
                 if options.preserve_timestamps {
                     if let Some(mtime) = entry.mtime {
@@ -126,11 +131,11 @@ impl Extractor for ZipExtractor {
                         }
                     }
                 }
-                
+
                 return Ok(());
             }
         }
-        
+
         Err(Error::NotFound(format!(
             "Entry not found in archive: {:?}",
             entry.path

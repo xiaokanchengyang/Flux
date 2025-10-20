@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "created": 1760968743,
+  "base_dir": "test_sync",
+  "total_size": 42,
+  "file_count": 3,
+  "files": {
+    "file2.txt": {
+      "path": "file2.txt",
+      "size": 15,
+      "hash": "5bbc757cf9e537cdbc80911174c17f2d9f5af58c12c49d9ace95558d05135fc3",
+      "mtime": 1760968739,
+      "mode": 33188,
+      "is_dir": false,
+      "is_symlink": false
+    },
+    "subdir": {
+      "path": "subdir",
+      "size": 0,
+      "hash": "",
+      "mtime": 1760968739,
+      "mode": 16877,
+      "is_dir": true,
+      "is_symlink": false
+    },
+    "file1.txt": {
+      "path": "file1.txt",
+      "size": 15,
+      "hash": "88d16b3e8c48b69539b75a5821804db6d5ff53d40159794342b3a0a991681c8a",
+      "mtime": 1760968739,
+      "mode": 33188,
+      "is_dir": false,
+      "is_symlink": false
+    },
+    "subdir/file3.txt": {
+      "path": "subdir/file3.txt",
+      "size": 12,
+      "hash": "86a6cb2e5b482972681971a635c540a30c2d123cc2bd3203cd22d31af60383ff",
+      "mtime": 1760968739,
+      "mode": 33188,
+      "is_dir": false,
+      "is_symlink": false
+    }
+  }
+}

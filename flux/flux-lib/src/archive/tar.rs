@@ -15,7 +15,6 @@ use walkdir::WalkDir;
 use xz2::write::XzEncoder;
 use zstd::stream::write::Encoder as ZstdEncoder;
 
-
 /// Pack files into a tar archive
 pub fn pack_tar<P: AsRef<Path>, Q: AsRef<Path>>(input: P, output: Q) -> Result<()> {
     pack_tar_with_options(input, output, false)
@@ -163,12 +162,9 @@ fn pack_directory_with_options<W: Write>(
     follow_symlinks: bool,
 ) -> Result<()> {
     let base_path = dir.parent().unwrap_or(Path::new(""));
-    
 
     let walker = if follow_symlinks {
-        WalkDir::new(dir)
-            .follow_links(true)
-            .max_depth(100)  // Prevent infinite recursion
+        WalkDir::new(dir).follow_links(true).max_depth(100) // Prevent infinite recursion
     } else {
         WalkDir::new(dir).follow_links(false)
     };
@@ -183,7 +179,10 @@ fn pack_directory_with_options<W: Write>(
                 if e.io_error().is_some() && e.path().is_some() {
                     let path = e.path().unwrap();
                     if e.loop_ancestor().is_some() {
-                        return Err(Error::Archive(format!("Symlink loop detected at {:?}", path)));
+                        return Err(Error::Archive(format!(
+                            "Symlink loop detected at {:?}",
+                            path
+                        )));
                     }
                 }
                 continue; // Skip this entry

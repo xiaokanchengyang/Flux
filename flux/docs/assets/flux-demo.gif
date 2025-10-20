@@ -1,0 +1,18 @@
+# Flux Demo GIF Placeholder
+
+This is a placeholder for the Flux demo GIF. 
+
+To create the actual demo GIF:
+1. Use a tool like asciinema + svg-term-cli or terminalizer
+2. Record a demo showing:
+   - flux pack command with progress
+   - flux extract command
+   - flux inspect command
+3. Convert to GIF format
+4. Replace this file
+
+The demo should demonstrate:
+- Smart compression in action
+- Progress bars
+- Cross-platform usage
+- Multiple file types being compressed optimally

@@ -135,37 +135,37 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
 }
 
 /// Pack options for archive creation
-/// 
+///
 /// When packing multiple small files (< 1KB), the library automatically
 /// uses tar format first before applying compression. This "batch then compress"
 /// approach significantly improves compression ratio and performance for
 /// directories with many small files.
-/// 
+///
 /// # Small File Batching Strategy
-/// 
+///
 /// The library employs an intelligent batching strategy for small files:
-/// 
+///
 /// 1. **Detection**: Files smaller than 1KB are identified during directory scanning
 /// 2. **Batching**: These files are first archived into a tar format without compression
 /// 3. **Compression**: The entire tar archive is then compressed using the selected algorithm
-/// 
+///
 /// This approach provides several benefits:
 /// - Better compression ratios (small files share dictionary/context)
 /// - Reduced metadata overhead
 /// - Faster compression/decompression
 /// - More efficient memory usage
-/// 
+///
 /// # Example
-/// 
+///
 /// ```no_run
 /// use flux_lib::archive::{pack, PackOptions};
-/// 
+///
 /// // Packing a directory with many small config files
 /// let options = PackOptions {
 ///     smart: true,  // Enables intelligent batching
 ///     ..Default::default()
 /// };
-/// 
+///
 /// // The library will automatically batch small files
 /// // pack("config_dir", "configs.tar.zst", options)?;
 /// # Ok::<(), flux_lib::Error>(())
@@ -242,7 +242,8 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
         }
     } else if let Some(algo_str) = &options.algorithm {
         // Use specified algorithm
-        let algorithm = algo_str.parse::<Algorithm>()
+        let algorithm = algo_str
+            .parse::<Algorithm>()
             .map_err(|_| Error::UnsupportedFormat(format!("Unknown algorithm: {}", algo_str)))?;
         CompressionStrategy {
             algorithm,
@@ -257,10 +258,13 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
     };
 
     strategy.force_compress = options.force_compress;
-    
+
     // Get file size for thread adjustment
     let file_size = if input.is_file() {
-        input.metadata().map(|m| m.len()).unwrap_or(100 * 1024 * 1024)
+        input
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(100 * 1024 * 1024)
     } else {
         // For directories, estimate based on total size
         100 * 1024 * 1024 // Default to 100MB

@@ -1,12 +1,13 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod interactive;
 mod extract;
+mod tui;
 
 #[derive(Parser)]
 #[command(name = "flux")]
@@ -110,6 +111,14 @@ enum Commands {
         /// Output format as JSON
         #[arg(long)]
         json: bool,
+        
+        /// Interactive TUI mode
+        #[arg(short, long)]
+        interactive: bool,
+        
+        /// Show as tree structure
+        #[arg(long)]
+        tree: bool,
     },
 
     /// Show or edit configuration
@@ -125,6 +134,35 @@ enum Commands {
         /// Show configuration file path
         #[arg(long, conflicts_with_all = ["show", "edit"])]
         path: bool,
+    },
+    
+    /// Synchronize directory with incremental backup
+    Sync {
+        /// Source directory to backup
+        source: PathBuf,
+        
+        /// Target archive file
+        target: PathBuf,
+        
+        /// Compression algorithm (zstd, xz, brotli, gzip)
+        #[arg(long)]
+        algo: Option<String>,
+        
+        /// Compression level (1-9 for most algorithms)
+        #[arg(long)]
+        level: Option<u32>,
+        
+        /// Number of threads to use
+        #[arg(long)]
+        threads: Option<usize>,
+        
+        /// Follow symlinks (pack link targets instead of links)
+        #[arg(long)]
+        follow_symlinks: bool,
+        
+        /// Force full backup (ignore previous manifest)
+        #[arg(long)]
+        full: bool,
     },
 }
 
@@ -270,15 +308,22 @@ fn run() -> Result<()> {
             }
         }
 
-        Commands::Inspect { archive, json } => {
+        Commands::Inspect { archive, json, interactive, tree } => {
             info!("Inspecting archive: {:?}", archive);
 
             let entries = flux_lib::inspect(&archive)?;
 
-            if json {
+            if interactive {
+                // Interactive TUI mode
+                info!("Launching interactive browser...");
+                tui::run_tui(entries)?;
+            } else if json {
                 // Output as JSON
                 let json_output = serde_json::to_string_pretty(&entries)?;
                 println!("{}", json_output);
+            } else if tree {
+                // Tree view
+                print_tree(&entries);
             } else {
                 // Output as human-readable table
                 println!(
@@ -372,9 +417,103 @@ fn run() -> Result<()> {
                 eprintln!("Please specify --show, --edit, or --path");
             }
         }
+        
+        Commands::Sync {
+            source,
+            target,
+            algo,
+            level,
+            threads,
+            follow_symlinks,
+            full,
+        } => {
+            info!("Synchronizing {:?} to {:?}", source, target);
+            
+            if !source.is_dir() {
+                error!("Source must be a directory");
+                return Err(anyhow::anyhow!("Source must be a directory"));
+            }
+            
+            // Determine manifest path
+            let manifest_path = target.with_extension("fluxmanifest");
+            
+            if full || !manifest_path.exists() {
+                // Full backup
+                info!("Performing full backup (no previous manifest found or --full specified)");
+                
+                let options = flux_lib::archive::PackOptions {
+                    smart: false,
+                    algorithm: algo,
+                    level,
+                    threads,
+                    force_compress: false,
+                    follow_symlinks,
+                };
+                
+                // Use tar.gz as default format for sync
+                let format = Some("tar.gz");
+                flux_lib::archive::pack_with_strategy(&source, &target, format, options)?;
+                
+                // Generate and save manifest
+                let manifest = flux_lib::manifest::Manifest::from_directory(&source)?;
+                manifest.save(&manifest_path)?;
+                
+                info!("Full backup complete. Manifest saved to: {:?}", manifest_path);
+            } else {
+                // Incremental backup
+                info!("Performing incremental backup using manifest: {:?}", manifest_path);
+                
+                let (new_manifest_path, diff) = flux_lib::archive::incremental::pack_incremental(
+                    &source,
+                    &target,
+                    &manifest_path,
+                    flux_lib::archive::PackOptions {
+                        smart: false,
+                        algorithm: algo,
+                        level,
+                        threads,
+                        force_compress: false,
+                        follow_symlinks,
+                    },
+                )?;
+                
+                if diff.has_changes() {
+                    info!("Incremental backup complete");
+                    info!("Changes: {} added, {} modified, {} deleted", 
+                        diff.added.len(), diff.modified.len(), diff.deleted.len());
+                    info!("Updated manifest: {:?}", new_manifest_path);
+                } else {
+                    info!("No changes detected since last backup");
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Print entries as a tree structure
+fn print_tree(entries: &[flux_lib::archive::ArchiveEntry]) {
+    // Simple tree printing
+    let mut sorted_entries = entries.to_vec();
+    sorted_entries.sort_by(|a, b| a.path.cmp(&b.path));
+    
+    println!("Archive contents:");
+    for entry in &sorted_entries {
+        let depth = entry.path.components().count();
+        let indent = "  ".repeat(depth.saturating_sub(1));
+        
+        let icon = if entry.is_dir {
+            "📁"
+        } else if entry.is_symlink {
+            "🔗"
+        } else {
+            "📄"
+        };
+        
+        let name = entry.path.to_string_lossy();
+        println!("{}{} {}", indent, icon, name);
+    }
 }
 
 /// Map errors to exit codes according to requirements:
@@ -400,6 +539,7 @@ fn map_error_to_exit_code(err: &anyhow::Error) -> i32 {
             flux_lib::Error::UnsupportedOperation(_) => 3,
             flux_lib::Error::PartialFailure { .. } => 4,
             flux_lib::Error::NotFound(_) => 2,
+            flux_lib::Error::SecurityError(_) => 3,
         }
     } else if err.is::<std::io::Error>() {
         2

@@ -16,13 +16,8 @@ name = "flux-gui"
 path = "src/main.rs"
 
 [dependencies]
-flux-lib = { path = "../flux-lib" }
-egui = { workspace = true }
+flux-lib = { path = "../flux-lib" }  # Using flux-lib as the core library
 eframe = { workspace = true }
+egui = { workspace = true }
 crossbeam-channel = { workspace = true }
 rfd = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true }
-dirs = { workspace = true }

@@ -17,22 +17,262 @@ pub fn handle_pack_task(
     options: flux_lib::archive::PackOptions,
     ui_sender: &Sender<ToUi>,
 ) {
-    // For simplicity, if multiple inputs, pack the first one
-    // In a real implementation, you might want to create a temporary directory
-    // and copy all files there first
-    if let Some(input) = inputs.first() {
-        // Use flux_lib::archive::pack_with_strategy function
-        match flux_lib::archive::pack_with_strategy(input, &output, None, options) {
-            Ok(_) => {
-                let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
-            }
-            Err(e) => {
+    
+    if inputs.is_empty() {
+        let _ = ui_sender.send(ToUi::Finished(TaskResult::Error("No input files".to_string())));
+        return;
+    }
+
+    // Calculate total size of all input files for progress tracking
+    let mut total_size: u64 = 0;
+    let mut file_sizes: Vec<(PathBuf, u64)> = Vec::new();
+    
+    for input in &inputs {
+        let size = calculate_path_size(input);
+        total_size += size;
+        file_sizes.push((input.clone(), size));
+    }
+    
+    let mut processed_size: u64 = 0;
+    
+    // Send initial progress
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: 0,
+        total_bytes: total_size,
+        current_file: "Preparing to pack...".to_string(),
+    }));
+    
+    // Handle different compression formats
+    match output.extension().and_then(|e| e.to_str()) {
+        Some("zip") => {
+            // For ZIP files, we'll pack each file individually
+            if let Err(e) = pack_multiple_zip(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks) {
                 let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+                return;
             }
         }
-    } else {
-        let _ = ui_sender.send(ToUi::Finished(TaskResult::Error("No input files".to_string())));
+        Some(ext) => {
+            // For tar-based formats, check if it's a compound extension
+            let filename = output.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            
+            if filename.ends_with(".tar.gz") || filename.ends_with(".tar.zst") || 
+               filename.ends_with(".tar.xz") || filename.ends_with(".tar.br") {
+                // Pack to compressed tar
+                if let Err(e) = pack_multiple_tar_compressed(&inputs, &output, ui_sender, &mut processed_size, total_size, options) {
+                    let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+                    return;
+                }
+            } else if ext == "tar" {
+                // Pack to uncompressed tar
+                if let Err(e) = pack_multiple_tar(&inputs, &output, ui_sender, &mut processed_size, total_size, options.follow_symlinks) {
+                    let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+                    return;
+                }
+            } else {
+                // Fallback to single file packing for other formats
+                if inputs.len() == 1 {
+                    match flux_lib::archive::pack_with_strategy(&inputs[0], &output, None, options) {
+                        Ok(_) => {
+                            let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+                                processed_bytes: total_size,
+                                total_bytes: total_size,
+                                current_file: "Packing complete".to_string(),
+                            }));
+                        }
+                        Err(e) => {
+                            let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+                            return;
+                        }
+                    }
+                } else {
+                    let _ = ui_sender.send(ToUi::Finished(TaskResult::Error("Multiple files can only be packed into tar or zip archives".to_string())));
+                    return;
+                }
+            }
+        }
+        None => {
+            let _ = ui_sender.send(ToUi::Finished(TaskResult::Error("Output file must have an extension".to_string())));
+            return;
+        }
     }
+    
+    let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
+}
+
+/// Calculate the total size of a path (file or directory)
+fn calculate_path_size(path: &PathBuf) -> u64 {
+    if path.is_file() {
+        std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    } else if path.is_dir() {
+        let mut size = 0;
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                size += calculate_path_size(&entry.path());
+            }
+        }
+        size
+    } else {
+        0
+    }
+}
+
+/// Pack multiple files into a tar archive
+fn pack_multiple_tar(
+    inputs: &[PathBuf],
+    output: &PathBuf,
+    ui_sender: &Sender<ToUi>,
+    processed_size: &mut u64,
+    total_size: u64,
+    follow_symlinks: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use flux_lib::archive::tar;
+    
+    // Find common base directory for relative paths
+    let base_dir = find_common_base_dir(inputs);
+    
+    // Send progress updates periodically
+    for input in inputs {
+        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+            processed_bytes: *processed_size,
+            total_bytes: total_size,
+            current_file: format!("Adding: {}", input.display()),
+        }));
+        
+        *processed_size += calculate_path_size(input);
+    }
+    
+    // Pack all files
+    tar::pack_multiple_files(inputs, output, base_dir.as_deref(), follow_symlinks)?;
+    
+    Ok(())
+}
+
+/// Pack multiple files into a compressed tar archive
+fn pack_multiple_tar_compressed(
+    inputs: &[PathBuf],
+    output: &PathBuf,
+    ui_sender: &Sender<ToUi>,
+    processed_size: &mut u64,
+    total_size: u64,
+    options: flux_lib::archive::PackOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    
+    // First create uncompressed tar in memory or temp file
+    let temp_tar = output.with_extension("tar.tmp");
+    
+    // Pack to temporary tar file
+    pack_multiple_tar(inputs, &temp_tar, ui_sender, processed_size, total_size, options.follow_symlinks)?;
+    
+    // Now compress the tar file
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: *processed_size,
+        total_bytes: total_size,
+        current_file: "Compressing archive...".to_string(),
+    }));
+    
+    // Use pack_with_strategy to compress the tar file
+    match flux_lib::archive::pack_with_strategy(&temp_tar, output, None, options) {
+        Ok(_) => {
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_tar);
+            Ok(())
+        }
+        Err(e) => {
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_tar);
+            Err(e.into())
+        }
+    }
+}
+
+/// Pack multiple files into a ZIP archive
+fn pack_multiple_zip(
+    inputs: &[PathBuf],
+    output: &PathBuf,
+    ui_sender: &Sender<ToUi>,
+    processed_size: &mut u64,
+    total_size: u64,
+    follow_symlinks: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // For ZIP, we'll create a temporary directory and copy all files there,
+    // then use flux_lib to pack them
+    use std::fs;
+    use tempfile::TempDir;
+    
+    // Create a temporary directory
+    let temp_dir = TempDir::new()?;
+    let temp_path = temp_dir.path();
+    
+    // Copy all input files to the temp directory
+    for (idx, input) in inputs.iter().enumerate() {
+        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+            processed_bytes: *processed_size,
+            total_bytes: total_size,
+            current_file: format!("Preparing: {}", input.display()),
+        }));
+        
+        let dest_name = input.file_name()
+            .map(|n| n.to_owned())
+            .unwrap_or_else(|| std::ffi::OsString::from(format!("file_{}", idx)));
+        let dest_path = temp_path.join(&dest_name);
+        
+        if input.is_file() {
+            fs::copy(input, &dest_path)?;
+        } else if input.is_dir() {
+            copy_dir_recursive(input, &dest_path)?;
+        }
+        
+        *processed_size += calculate_path_size(input);
+    }
+    
+    // Now use flux_lib to pack the temp directory
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: *processed_size,
+        total_bytes: total_size,
+        current_file: "Creating ZIP archive...".to_string(),
+    }));
+    
+    flux_lib::archive::zip::pack_zip_with_options(temp_path, output, follow_symlinks)?;
+    
+    Ok(())
+}
+
+/// Recursively copy a directory
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs;
+    
+    fs::create_dir_all(dst)?;
+    
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    
+    Ok(())
+}
+
+/// Find the common base directory for a set of paths
+fn find_common_base_dir(paths: &[PathBuf]) -> Option<PathBuf> {
+    if paths.is_empty() {
+        return None;
+    }
+    
+    // If all paths have the same parent, use that as base
+    let first_parent = paths[0].parent();
+    if let Some(parent) = first_parent {
+        if paths.iter().all(|p| p.parent() == first_parent) {
+            return Some(parent.to_path_buf());
+        }
+    }
+    
+    None
 }
 
 /// Handle extract task in background thread
@@ -42,6 +282,14 @@ pub fn handle_extract_task(
     ui_sender: &Sender<ToUi>,
 ) {
     use flux_lib::archive::extractor::ExtractEntryOptions;
+    use std::time::Instant;
+    
+    // Send initial status
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: 0,
+        total_bytes: 0,
+        current_file: "Opening archive...".to_string(),
+    }));
     
     // Create extractor
     let extractor = match flux_lib::archive::create_extractor(&archive) {
@@ -53,6 +301,12 @@ pub fn handle_extract_task(
     };
     
     // Get entries to calculate total size
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: 0,
+        total_bytes: 0,
+        current_file: "Reading archive contents...".to_string(),
+    }));
+    
     let entries: Vec<_> = match extractor.entries(&archive) {
         Ok(entries) => {
             // Collect entries first to calculate total size
@@ -64,9 +318,18 @@ pub fn handle_extract_task(
         }
     };
     
-    // Calculate total size
+    // Calculate total size and count
     let total_size: u64 = entries.iter().map(|e| e.size).sum();
+    let total_count = entries.len();
     let mut processed_size: u64 = 0;
+    let mut processed_count = 0;
+    
+    // Send initial progress with total info
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: 0,
+        total_bytes: total_size,
+        current_file: format!("Extracting {} files...", total_count),
+    }));
     
     // Extract options
     let extract_options = ExtractEntryOptions {
@@ -76,14 +339,30 @@ pub fn handle_extract_task(
         follow_symlinks: false,
     };
     
+    // Track time for periodic updates
+    let mut last_update = Instant::now();
+    let update_interval = std::time::Duration::from_millis(100); // Update every 100ms
+    
     // Extract each entry
     for entry in &entries {
-        // Send progress update
-        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
-            processed_bytes: processed_size,
-            total_bytes: total_size,
-            current_file: entry.path.display().to_string(),
-        }));
+        processed_count += 1;
+        
+        // Send progress update if enough time has passed or for every file if there are few files
+        if last_update.elapsed() > update_interval || total_count < 50 {
+            let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+                processed_bytes: processed_size,
+                total_bytes: total_size,
+                current_file: format!(
+                    "Extracting ({}/{}): {}",
+                    processed_count,
+                    total_count,
+                    entry.path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or_else(|| entry.path.to_str().unwrap_or("..."))
+                ),
+            }));
+            last_update = Instant::now();
+        }
         
         // Extract the entry
         if let Err(e) = extractor.extract_entry(&archive, entry, &output_dir, extract_options.clone()) {
@@ -100,7 +379,7 @@ pub fn handle_extract_task(
     let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
         processed_bytes: total_size,
         total_bytes: total_size,
-        current_file: "Extraction complete".to_string(),
+        current_file: format!("Successfully extracted {} files", total_count),
     }));
     let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
 }

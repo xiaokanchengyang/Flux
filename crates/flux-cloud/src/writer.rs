@@ -1,122 +1,133 @@
-//! CloudWriter - provides synchronous Write trait for cloud objects
-
-use crate::{buffer::WriteBuffer, error::Result, runtime::get_runtime, CloudConfig, CloudError};
-use bytes::Bytes;
-use object_store::{ObjectStore, path::Path as ObjectPath, MultipartUpload, PutPayload};
 use std::io::Write;
-use std::sync::Arc;
-use tracing::{debug, trace};
+use bytes::{BytesMut, BufMut};
+use object_store::path::Path;
+use object_store::MultipartUpload;
+use tracing::debug;
+use crate::{CloudStore, CloudPath, CloudConfig, Result, CloudError};
 
-/// A writer that provides synchronous write access to cloud storage objects
-#[derive(Debug)]
+/// A writer that adapts cloud storage to implement std::io::Write
 pub struct CloudWriter {
-    /// The object store
-    store: Arc<dyn ObjectStore>,
-    /// Path to the object
-    path: ObjectPath,
-    /// Write buffer
-    buffer: WriteBuffer,
+    store: CloudStore,
+    path: Path,
+    /// Buffer for accumulating data before upload
+    buffer: BytesMut,
     /// Configuration
     config: CloudConfig,
     /// Total bytes written
-    bytes_written: u64,
-    /// Multipart upload handle (if using multipart)
+    total_written: u64,
+    /// Multipart upload handle (for large files)
     multipart: Option<Box<dyn MultipartUpload>>,
+    /// Part number for multipart uploads
+    part_number: usize,
 }
 
 impl CloudWriter {
-    /// Create a new CloudWriter
-    ///
-    /// # Arguments
-    /// * `store` - The object store to write to
-    /// * `path` - Path to the object
-    /// * `config` - Configuration for the writer
-    pub fn new(
-        store: Arc<dyn ObjectStore>,
-        path: ObjectPath,
-        config: CloudConfig,
-    ) -> Self {
-        Self {
-            store,
-            path,
-            buffer: WriteBuffer::new(config.write_buffer_size),
-            config,
-            bytes_written: 0,
-            multipart: None,
-        }
+    /// Create a new CloudWriter for the given cloud URL
+    pub fn new(url: &str) -> Result<Self> {
+        Self::with_config(url, CloudConfig::default())
     }
     
-    /// Create a new CloudWriter with default configuration
-    pub fn new_with_defaults(
-        store: Arc<dyn ObjectStore>,
-        path: ObjectPath,
-    ) -> Self {
-        Self::new(store, path, CloudConfig::default())
+    /// Create a new CloudWriter with custom configuration
+    pub fn with_config(url: &str, config: CloudConfig) -> Result<Self> {
+        let cloud_path = CloudPath::parse(url)?;
+        let store = CloudStore::new(&cloud_path)?;
+        Self::from_store_with_config(store, cloud_path.path, config)
+    }
+    
+    /// Create a CloudWriter from an existing CloudStore and path
+    pub fn from_store(store: CloudStore, path: Path) -> Result<Self> {
+        Self::from_store_with_config(store, path, CloudConfig::default())
+    }
+    
+    /// Create a CloudWriter from an existing CloudStore and path with custom config
+    pub fn from_store_with_config(store: CloudStore, path: Path, config: CloudConfig) -> Result<Self> {
+        Ok(CloudWriter {
+            store,
+            path,
+            buffer: BytesMut::with_capacity(config.write_buffer_size),
+            config,
+            total_written: 0,
+            multipart: None,
+            part_number: 0,
+        })
     }
     
     /// Get the total number of bytes written
     pub fn bytes_written(&self) -> u64 {
-        self.bytes_written
+        self.total_written
     }
     
-    /// Upload the current buffer contents
-    async fn upload_buffer(&mut self) -> Result<()> {
+    /// Flush the current buffer to cloud storage
+    fn flush_buffer(&mut self) -> Result<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }
         
-        let data = self.buffer.take();
+        let data = self.buffer.split().freeze();
         
-        if let Some(multipart) = &mut self.multipart {
-            // Multipart upload
-            debug!("Uploading multipart chunk of {} bytes", data.len());
-            multipart.put_part(data.into()).await?;
+        if self.multipart.is_some() {
+            // We're in multipart mode, upload as a part
+            self.upload_part(data)?;
         } else if self.config.use_multipart_upload 
-            && self.bytes_written + data.len() as u64 > self.config.multipart_threshold as u64 
-        {
-            // Start multipart upload
+            && self.total_written + data.len() as u64 > self.config.multipart_threshold as u64 {
+            // Switch to multipart mode
             debug!("Starting multipart upload for {}", self.path);
-            let runtime = get_runtime();
-            let store = self.store.clone();
-            let path = self.path.clone();
-            
-            let mut multipart = runtime.block_on(async {
-                store.put_multipart(&path).await
-            })?;
-            
-            multipart.put_part(data.into()).await?;
-            self.multipart = Some(multipart);
+            self.start_multipart()?;
+            self.upload_part(data)?;
         } else {
-            // For small writes, we'll accumulate and do a single PUT at the end
-            // Put the data back in the buffer
-            self.buffer.write(&data);
+            // Still small enough for single upload, just buffer it
+            // We'll upload everything on final flush/drop
+            self.buffer.put(data);
         }
         
         Ok(())
     }
     
-    /// Finalize the write operation
-    async fn finalize_internal(&mut self) -> Result<()> {
-        if let Some(multipart) = self.multipart.take() {
+    /// Start a multipart upload
+    fn start_multipart(&mut self) -> Result<()> {
+        let upload = self.store.runtime().block_on(async {
+            self.store.store()
+                .put_multipart(&self.path)
+                .await
+        }).map_err(CloudError::ObjectStore)?;
+        
+        self.multipart = Some(upload);
+        self.part_number = 0;
+        Ok(())
+    }
+    
+    /// Upload a part in multipart upload
+    fn upload_part(&mut self, data: bytes::Bytes) -> Result<()> {
+        if let Some(ref mut upload) = self.multipart {
+            self.store.runtime().block_on(async {
+                upload.put_part(data.into()).await
+            }).map_err(CloudError::ObjectStore)?;
+            self.part_number += 1;
+        }
+        Ok(())
+    }
+    
+    /// Complete the upload (called on drop or explicit finish)
+    fn finish_upload(&mut self) -> Result<()> {
+        if let Some(mut upload) = self.multipart.take() {
             // Complete multipart upload
+            self.flush_buffer()?;
             debug!("Completing multipart upload for {}", self.path);
-            
-            // Upload any remaining buffer
-            if !self.buffer.is_empty() {
-                let data = self.buffer.take();
-                multipart.put_part(data.into()).await?;
-            }
-            
-            multipart.complete().await?;
+            self.store.runtime().block_on(async {
+                upload.complete().await
+            }).map_err(CloudError::ObjectStore)?;
         } else {
-            // Single PUT operation
-            let data = self.buffer.take();
+            // Simple put for small files
+            let data = self.buffer.split().freeze();
             if !data.is_empty() {
                 debug!("Uploading {} bytes to {}", data.len(), self.path);
-                self.store.put(&self.path, data.into()).await?;
+                self.store.runtime().block_on(async {
+                    self.store.store()
+                        .put(&self.path, data.into())
+                        .await
+                }).map_err(CloudError::ObjectStore)?;
             }
         }
-        
         Ok(())
     }
     
@@ -126,8 +137,7 @@ impl CloudWriter {
     /// It's automatically called on drop, but calling it explicitly allows
     /// for proper error handling.
     pub fn finalize(mut self) -> Result<()> {
-        let runtime = get_runtime();
-        runtime.block_on(self.finalize_internal())
+        self.finish_upload()
     }
 }
 
@@ -137,48 +147,90 @@ impl Write for CloudWriter {
             return Ok(0);
         }
         
-        let mut written = 0;
-        let mut remaining = buf;
-        
-        while !remaining.is_empty() {
-            let n = self.buffer.write(remaining);
-            written += n;
-            self.bytes_written += n as u64;
-            remaining = &remaining[n..];
-            
-            // If buffer is full, upload it
-            if self.buffer.remaining() == 0 {
-                trace!("Buffer full, uploading {} bytes", self.buffer.len());
-                let runtime = get_runtime();
-                runtime.block_on(self.upload_buffer())?;
-            }
+        // Check if adding this data would exceed buffer size
+        if self.buffer.len() + buf.len() > self.config.write_buffer_size {
+            self.flush_buffer()?;
         }
         
-        Ok(written)
+        // If the incoming data is larger than buffer size, handle it specially
+        if buf.len() > self.config.write_buffer_size {
+            // Flush any existing buffer first
+            self.flush_buffer()?;
+            
+            // Start multipart if not already started and configured
+            if self.config.use_multipart_upload && self.multipart.is_none() {
+                self.start_multipart()?;
+            }
+            
+            // Upload the large chunk directly
+            self.upload_part(bytes::Bytes::copy_from_slice(buf))?;
+        } else {
+            // Normal case: add to buffer
+            self.buffer.put_slice(buf);
+        }
+        
+        self.total_written += buf.len() as u64;
+        Ok(buf.len())
     }
     
     fn flush(&mut self) -> std::io::Result<()> {
-        // In cloud storage, flush doesn't immediately upload
-        // We only upload on buffer full or finalize
+        self.flush_buffer()?;
         Ok(())
     }
 }
 
 impl Drop for CloudWriter {
     fn drop(&mut self) {
-        if self.buffer.len() > 0 || self.multipart.is_some() {
-            // Try to finalize, but we can't propagate errors from drop
-            let runtime = get_runtime();
-            if let Err(e) = runtime.block_on(self.finalize_internal()) {
-                eprintln!("Warning: Failed to finalize CloudWriter on drop: {}", e);
-            }
-        }
+        // Best effort to complete the upload
+        let _ = self.finish_upload();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// A CloudWriter that completes the upload when explicitly finished
+pub struct CloudWriterGuard {
+    writer: Option<CloudWriter>,
+}
+
+impl CloudWriterGuard {
+    pub fn new(writer: CloudWriter) -> Self {
+        CloudWriterGuard {
+            writer: Some(writer),
+        }
+    }
     
-    // Tests will be added here
+    /// Finish the upload and consume the writer
+    pub fn finish(mut self) -> Result<()> {
+        if let Some(mut writer) = self.writer.take() {
+            writer.finish_upload()?;
+        }
+        Ok(())
+    }
+}
+
+impl Write for CloudWriterGuard {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writer.as_mut()
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Writer already finished"
+            ))?
+            .write(buf)
+    }
+    
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.as_mut()
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Writer already finished"
+            ))?
+            .flush()
+    }
+}
+
+impl Drop for CloudWriterGuard {
+    fn drop(&mut self) {
+        if let Some(writer) = self.writer.take() {
+            drop(writer); // Will call finish_upload in CloudWriter's drop
+        }
+    }
 }

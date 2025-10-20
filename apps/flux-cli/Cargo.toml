@@ -16,8 +16,8 @@ name = "flux"
 path = "src/main.rs"
 
 [dependencies]
-flux-core = { path = "../../flux/flux-core" }
-flux-cloud = { path = "../../flux/flux-cloud", optional = true }
+flux-core = { path = "../../crates/flux-core" }
+flux-cloud = { path = "../../crates/flux-cloud", optional = true }
 clap = { workspace = true }
 indicatif = { workspace = true }
 tracing = { workspace = true }

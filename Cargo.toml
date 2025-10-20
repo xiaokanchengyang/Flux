@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "flux/flux-core",
-    "flux/flux-cloud", 
-    "flux/flux-testing",
+    "crates/flux-core",
+    "crates/flux-cloud", 
+    "crates/flux-testing",
     "apps/flux-cli",
     "apps/flux-gui"
 ]

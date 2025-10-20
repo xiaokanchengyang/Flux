@@ -2,38 +2,25 @@
 name = "flux-cloud"
 version = "0.1.0"
 edition = "2021"
-authors = ["The Flux Contributors"]
-description = "Cloud storage adaptation layer for Flux - provides sync Read/Write/Seek interfaces for cloud objects"
+authors = ["Flux Contributors"]
+description = "Cloud storage adaptation layer for Flux archive tool"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/flux-rs/flux"
-keywords = ["cloud", "storage", "s3", "object-store", "adapter"]
-categories = ["filesystem", "api-bindings"]
+repository = "https://github.com/FractalFir/flux"
+keywords = ["cloud", "storage", "s3", "archive", "adapter"]
+categories = ["filesystem", "network-programming"]
 
 [dependencies]
-# Async runtime
-tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "macros"] }
-
-# Cloud storage abstraction
+tokio = { version = "1.41", features = ["rt", "rt-multi-thread", "macros"] }
 object_store = { version = "0.11", features = ["aws", "gcp", "azure", "http"] }
-
-# Utilities
-bytes = "1.7"
+bytes = "1.8"
 futures-util = "0.3"
 thiserror = "1.0"
 tracing = "0.1"
-
-# For buffering and caching
+url = "2.5"
+async-trait = "0.1"
 lru = "0.12"
 
 [dev-dependencies]
-# For testing
-tempfile = "3.10"
+tempfile = "3.14"
 tokio-test = "0.4"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[features]
-default = ["aws"]
-aws = ["object_store/aws"]
-gcp = ["object_store/gcp"]
-azure = ["object_store/azure"]
-all-clouds = ["aws", "gcp", "azure"]
+uuid = { version = "1.11", features = ["v4"] }

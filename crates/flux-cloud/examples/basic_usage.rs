@@ -5,31 +5,25 @@
 
 use flux_cloud::{CloudReader, CloudWriter, CloudConfig, parse_cloud_url};
 use std::io::{Read, Write, Seek, SeekFrom};
-use std::sync::Arc;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
-    
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example S3 URL (you'll need to set up credentials via environment variables)
     // AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     let url = "s3://my-bucket/test-object.txt";
     
     // Parse the URL to get store and path
     let (store, path) = parse_cloud_url(url)?;
-    let store = Arc::new(store);
     
     // Writing example
     println!("Writing to cloud storage...");
     {
-        let mut writer = CloudWriter::new_with_defaults(store.clone(), path.clone());
+        let mut writer = CloudWriter::from_store(store.clone(), path.clone())?;
         
         // Write some data
         writer.write_all(b"Hello from flux-cloud!\n")?;
         writer.write_all(b"This is a test of synchronous cloud I/O.\n")?;
         
-        // Write more data to trigger buffering
+        // Write more data to demonstrate buffering
         for i in 0..100 {
             writeln!(writer, "Line {}: Some test data to demonstrate buffering", i)?;
         }
@@ -41,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Reading example
     println!("\nReading from cloud storage...");
     {
-        let mut reader = CloudReader::new_with_defaults(store.clone(), path.clone()).await?;
+        let mut reader = CloudReader::from_store(store.clone(), path.clone())?;
         
         // Read the first 50 bytes
         let mut buffer = vec![0; 50];
@@ -78,11 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             multipart_threshold: 32 * 1024 * 1024, // 32MB
         };
         
-        let mut writer = CloudWriter::new(store.clone(), path.clone(), config.clone());
+        let mut writer = CloudWriter::from_store_with_config(
+            store.clone(), 
+            path.clone(), 
+            config.clone()
+        )?;
         writer.write_all(b"Data with custom config\n")?;
         writer.finalize()?;
         
-        let mut reader = CloudReader::new(store, path, config).await?;
+        let mut reader = CloudReader::from_store_with_config(store, path, config)?;
         let mut content = String::new();
         reader.read_to_string(&mut content)?;
         println!("Read with custom config: {}", content.lines().next().unwrap_or(""));

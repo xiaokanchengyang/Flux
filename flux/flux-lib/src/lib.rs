@@ -11,6 +11,7 @@ pub mod progress;
 pub mod strategy;
 pub mod interactive;
 pub mod manifest;
+pub mod security;
 
 pub use error::{Error, Result};
 

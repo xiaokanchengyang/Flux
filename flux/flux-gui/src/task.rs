@@ -36,6 +36,10 @@ pub struct ProgressUpdate {
     pub total_bytes: u64,
     /// Current file being processed
     pub current_file: String,
+    /// Processing speed in bytes per second
+    pub speed_bps: f64,
+    /// Estimated time remaining in seconds
+    pub eta_seconds: Option<f64>,
 }
 
 /// Result of a background task

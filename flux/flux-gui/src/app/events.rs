@@ -1,0 +1,179 @@
+//! Event handling for the Flux GUI application
+
+use std::path::PathBuf;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use tracing::{debug, info, warn};
+use crate::task::TaskCommand;
+use super::{FluxApp, AppView};
+
+impl FluxApp {
+    /// Analyze dropped files and switch view accordingly
+    pub(super) fn analyze_dropped_files(&mut self, files: Vec<PathBuf>) {
+        if files.is_empty() {
+            return;
+        }
+        
+        // Check if it's a single archive file
+        if files.len() == 1 {
+            let file = &files[0];
+            let file_name = file.file_name().map(|n| n.to_string_lossy().to_string());
+            
+            // Check for common archive extensions
+            if let Some(ext) = file.extension() {
+                let ext_str = ext.to_string_lossy().to_lowercase();
+                if matches!(ext_str.as_str(), "zip" | "tar" | "gz" | "zst" | "xz" | "7z" | "br") {
+                    // Switch to extracting view
+                    self.view = AppView::Extracting;
+                    self.input_files = files;
+                    info!(file = ?file_name, "Ready to extract archive");
+                    self.toasts.info(format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")));
+                    return;
+                }
+            }
+            
+            // Also check for compound extensions like .tar.gz
+            if let Some(name) = &file_name {
+                let name_lower = name.to_lowercase();
+                if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.zst") || 
+                   name_lower.ends_with(".tar.xz") || name_lower.ends_with(".tar.br") {
+                    // Switch to extracting view
+                    self.view = AppView::Extracting;
+                    self.input_files = files;
+                    info!(file = name, "Ready to extract compressed tar archive");
+                    self.toasts.info(format!("Ready to extract: {}", name));
+                    return;
+                }
+            }
+        }
+        
+        // Multiple files, single non-archive file, or directories - switch to packing view
+        self.view = AppView::Packing;
+        let count = files.len();
+        self.input_files = files;
+        info!(files = count, "Ready to pack files");
+        self.toasts.info(format!("Ready to pack {} file{}", count, if count == 1 { "" } else { "s" }));
+    }
+    
+    /// Cancel the current task
+    pub(super) fn cancel_task(&mut self) {
+        if let Some(flag) = &self.cancel_flag {
+            flag.store(true, Ordering::SeqCst);
+            info!("Cancelling current task");
+            self.toasts.info("Cancelling task...");
+        }
+    }
+    
+    /// Reset to welcome view
+    pub(super) fn reset_to_welcome(&mut self) {
+        debug!("Resetting to welcome view");
+        self.view = AppView::Welcome;
+        self.input_files.clear();
+        self.output_path = None;
+        self.current_progress = 0.0;
+        self.status_text = "Ready".to_string();
+        self.cancel_flag = None;
+    }
+    
+    /// Start the task based on current view and inputs
+    pub(super) fn start_task(&mut self) {
+        match self.view {
+            AppView::Packing => {
+                if let Some(output) = &self.output_path {
+                    // Validate output path
+                    if let Some(parent) = output.parent() {
+                        if !parent.exists() {
+                            warn!("Output directory does not exist: {:?}", parent);
+                            self.toasts.error("Output directory does not exist");
+                            return;
+                        }
+                    }
+                    
+                    // Determine the algorithm based on the selected compression format
+                    let algorithm = match self.compression_format.as_str() {
+                        "tar.gz" => Some("gz".to_string()),
+                        "tar.zst" => Some("zst".to_string()),
+                        "tar.xz" => Some("xz".to_string()),
+                        "zip" => Some("zip".to_string()),
+                        _ => None,
+                    };
+                    
+                    let options = flux_lib::archive::PackOptions {
+                        smart: false, // Disable smart mode since user explicitly selected format
+                        algorithm,
+                        level: None,
+                        threads: None,
+                        force_compress: false,
+                        follow_symlinks: false,
+                    };
+                    
+                    // Create cancel flag
+                    let cancel_flag = Arc::new(AtomicBool::new(false));
+                    self.cancel_flag = Some(cancel_flag.clone());
+                    
+                    let command = TaskCommand::Pack {
+                        inputs: self.input_files.clone(),
+                        output: output.clone(),
+                        options,
+                        cancel_flag,
+                    };
+                    
+                    if self.task_sender.send(command).is_ok() {
+                        self.is_busy = true;
+                        self.current_progress = 0.0;
+                        self.status_text = "Starting pack operation...".to_string();
+                        info!("Starting pack operation");
+                        self.toasts.info("Starting to create archive...");
+                    } else {
+                        warn!("Failed to send pack command to background thread");
+                        self.toasts.error("Failed to start task: background thread not responding");
+                    }
+                } else {
+                    warn!("No output path selected");
+                    self.toasts.error("Please select an output path first");
+                }
+            }
+            AppView::Extracting => {
+                if let (Some(archive), Some(output_dir)) = (self.input_files.first(), &self.output_path) {
+                    // Validate archive exists
+                    if !archive.exists() {
+                        warn!("Archive file not found: {:?}", archive);
+                        self.toasts.error("Archive file not found");
+                        return;
+                    }
+                    
+                    // Validate output directory exists
+                    if !output_dir.exists() {
+                        warn!("Output directory does not exist: {:?}", output_dir);
+                        self.toasts.error("Output directory does not exist");
+                        return;
+                    }
+                    
+                    // Create cancel flag
+                    let cancel_flag = Arc::new(AtomicBool::new(false));
+                    self.cancel_flag = Some(cancel_flag.clone());
+                    
+                    let command = TaskCommand::Extract {
+                        archive: archive.clone(),
+                        output_dir: output_dir.clone(),
+                        cancel_flag,
+                    };
+                    
+                    if self.task_sender.send(command).is_ok() {
+                        self.is_busy = true;
+                        self.current_progress = 0.0;
+                        self.status_text = "Starting extraction...".to_string();
+                        info!("Starting extraction operation");
+                        self.toasts.info("Starting extraction...");
+                    } else {
+                        warn!("Failed to send extract command to background thread");
+                        self.toasts.error("Failed to start task: background thread not responding");
+                    }
+                } else {
+                    warn!("Missing archive or output directory");
+                    self.toasts.error("Please select an archive and output directory first");
+                }
+            }
+            AppView::Welcome => {}
+        }
+    }
+}

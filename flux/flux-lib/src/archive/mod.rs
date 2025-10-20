@@ -8,6 +8,7 @@ pub mod extractor;
 pub mod tar_extractor;
 pub mod zip_extractor;
 pub mod sevenz_extractor;
+pub mod secure_extractor;
 
 use crate::strategy::{Algorithm, CompressionStrategy};
 use crate::{Error, Result};
@@ -145,6 +146,16 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
 
 /// Create an extractor for the given archive file
 pub fn create_extractor(path: &Path) -> Result<Box<dyn extractor::Extractor>> {
+    create_extractor_inner(path, false)
+}
+
+/// Create a secure extractor for the given archive file with security checks
+pub fn create_secure_extractor(path: &Path) -> Result<Box<dyn extractor::Extractor>> {
+    create_extractor_inner(path, true)
+}
+
+/// Internal function to create extractor with optional security wrapper
+fn create_extractor_inner(path: &Path, secure: bool) -> Result<Box<dyn extractor::Extractor>> {
     // Detect format by extension
     let ext = path
         .extension()
@@ -159,38 +170,44 @@ pub fn create_extractor(path: &Path) -> Result<Box<dyn extractor::Extractor>> {
         ext.to_string()
     };
 
-    match double_ext.as_str() {
-        "tar" => Ok(Box::new(tar_extractor::TarExtractor::new())),
-        "tar.gz" | "tgz" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+    let base_extractor: Box<dyn extractor::Extractor> = match double_ext.as_str() {
+        "tar" => Box::new(tar_extractor::TarExtractor::new()),
+        "tar.gz" | "tgz" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Gzip,
-        ))),
-        "tar.zst" | "tzst" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+        )),
+        "tar.zst" | "tzst" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Zstd,
-        ))),
-        "tar.xz" | "txz" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+        )),
+        "tar.xz" | "txz" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Xz,
-        ))),
-        "tar.br" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+        )),
+        "tar.br" => Box::new(tar_extractor::TarExtractor::with_compression(
             Algorithm::Brotli,
-        ))),
+        )),
         _ => match ext {
-            "tar" => Ok(Box::new(tar_extractor::TarExtractor::new())),
-            "gz" if stem.ends_with(".tar") => Ok(Box::new(
+            "tar" => Box::new(tar_extractor::TarExtractor::new()),
+            "gz" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Gzip),
-            )),
-            "zst" if stem.ends_with(".tar") => Ok(Box::new(
+            ),
+            "zst" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Zstd),
-            )),
-            "xz" if stem.ends_with(".tar") => Ok(Box::new(
+            ),
+            "xz" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Xz),
-            )),
-            "br" if stem.ends_with(".tar") => Ok(Box::new(
+            ),
+            "br" if stem.ends_with(".tar") => Box::new(
                 tar_extractor::TarExtractor::with_compression(Algorithm::Brotli),
-            )),
-            "zip" => Ok(Box::new(zip_extractor::ZipExtractor::new())),
-            "7z" => Ok(Box::new(sevenz_extractor::SevenZExtractor::new())),
-            _ => Err(Error::UnsupportedFormat(ext.to_string())),
+            ),
+            "zip" => Box::new(zip_extractor::ZipExtractor::new()),
+            "7z" => Box::new(sevenz_extractor::SevenZExtractor::new()),
+            _ => return Err(Error::UnsupportedFormat(ext.to_string())),
         },
+    };
+    
+    if secure {
+        Ok(Box::new(secure_extractor::SecureExtractor::new(base_extractor)))
+    } else {
+        Ok(base_extractor)
     }
 }
 

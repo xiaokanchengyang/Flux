@@ -2,47 +2,93 @@
 
 use eframe::egui;
 use std::time::SystemTime;
-use tracing::info;
+use tracing::{info, Level};
 
 use crate::task::{ToUi, TaskResult};
-use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction};
+use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction, draw_sync_view, SyncAction};
 use super::{FluxApp, AppView};
 
 impl FluxApp {
+    /// Export logs to a file
+    fn export_logs(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
+        use std::io::Write;
+        
+        let mut file = std::fs::File::create(path)?;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = now.as_secs();
+        let date = format!("Timestamp: {}", secs);
+        writeln!(file, "Flux GUI Logs - Exported at {}", date)?;
+        writeln!(file, "=")?;
+        writeln!(file)?;
+        
+        for (level, log) in &self.logs {
+            writeln!(file, "[{}] {}", level, log)?;
+        }
+        
+        Ok(())
+    }
+    
     /// Draw the welcome view
     pub(super) fn draw_welcome_view(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space(50.0);
-            ui.heading("Welcome to Flux");
-            ui.add_space(20.0);
-            ui.label("Drop files or archives here to get started");
             ui.add_space(40.0);
             
-            // Large drop zone
-            let drop_zone_size = egui::vec2(ui.available_width() * 0.8, 200.0);
-            let (rect, response) = ui.allocate_exact_size(drop_zone_size, egui::Sense::click());
+            // Stylish header with gradient-like effect
+            ui.heading(egui::RichText::new("🚀 Flux Archive Manager").size(32.0).color(self.theme.colors.primary));
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("Modern, fast, and intelligent file compression").size(16.0).color(self.theme.colors.text_weak));
+            ui.add_space(40.0);
             
-            // Draw drop zone
+            // Large drop zone with modern styling
+            let drop_zone_size = egui::vec2(ui.available_width() * 0.8, 220.0);
+            let (rect, response) = ui.allocate_exact_size(drop_zone_size, egui::Sense::click_and_drag());
+            
+            // Draw drop zone with theme colors
             let painter = ui.painter();
-            painter.rect_filled(rect, 10.0, egui::Color32::from_gray(40));
-            painter.rect_stroke(rect, 10.0, egui::Stroke::new(2.0, egui::Color32::from_gray(80)));
+            let is_hovered = response.hovered();
             
-            // Drop zone text
+            // Background with hover effect
+            let bg_color = if is_hovered {
+                self.theme.colors.primary.linear_multiply(0.1)
+            } else {
+                self.theme.colors.panel_bg
+            };
+            painter.rect_filled(rect, self.theme.rounding * 2.0, bg_color);
+            
+            // Border with dashed pattern effect
+            let border_color = if is_hovered {
+                self.theme.colors.primary
+            } else {
+                self.theme.colors.text_weak.linear_multiply(0.5)
+            };
+            painter.rect_stroke(rect, self.theme.rounding * 2.0, egui::Stroke::new(2.0, border_color));
+            
+            // Centered icon and text
+            let center = rect.center();
             painter.text(
-                rect.center(),
+                center - egui::vec2(0.0, 20.0),
                 egui::Align2::CENTER_CENTER,
-                "🎯 Drop files here",
-                egui::FontId::proportional(24.0),
-                egui::Color32::from_gray(150),
+                "⬇",
+                egui::FontId::proportional(48.0),
+                self.theme.colors.primary.linear_multiply(if is_hovered { 1.0 } else { 0.7 }),
             );
             
-            // Subtitle
             painter.text(
-                rect.center() + egui::vec2(0.0, 40.0),
+                center + egui::vec2(0.0, 30.0),
+                egui::Align2::CENTER_CENTER,
+                "Drop files or folders here",
+                egui::FontId::proportional(20.0),
+                self.theme.colors.text,
+            );
+            
+            painter.text(
+                center + egui::vec2(0.0, 55.0),
                 egui::Align2::CENTER_CENTER,
                 "or click to browse",
-                egui::FontId::proportional(16.0),
-                egui::Color32::from_gray(120),
+                egui::FontId::proportional(14.0),
+                self.theme.colors.text_weak,
             );
             
             // Handle click on drop zone
@@ -54,18 +100,79 @@ impl FluxApp {
             
             ui.add_space(40.0);
             
-            // Info section
-            ui.separator();
-            ui.add_space(20.0);
+            // Quick action buttons
+            ui.horizontal(|ui| {
+                ui.add_space((ui.available_width() - 530.0) / 2.0); // Center the buttons
+                
+                // Create Archive button
+                self.theme.style_button(ui, true);
+                if ui.add_sized(
+                    egui::vec2(150.0, 40.0),
+                    egui::Button::new(egui::RichText::new("📦 Create Archive").size(16.0))
+                ).clicked() {
+                    if let Some(files) = rfd::FileDialog::new().pick_files() {
+                        self.analyze_dropped_files(files);
+                    }
+                }
+                
+                ui.add_space(20.0);
+                
+                // Extract Archive button
+                self.theme.style_button(ui, false);
+                if ui.add_sized(
+                    egui::vec2(150.0, 40.0),
+                    egui::Button::new(egui::RichText::new("📂 Extract Archive").size(16.0))
+                ).clicked() {
+                    if let Some(file) = rfd::FileDialog::new()
+                        .add_filter("Archives", &["zip", "tar", "gz", "zst", "xz", "7z", "br"])
+                        .pick_file() {
+                        self.analyze_dropped_files(vec![file]);
+                    }
+                }
+                
+                ui.add_space(20.0);
+                
+                // Incremental Backup button
+                self.theme.style_button(ui, false);
+                if ui.add_sized(
+                    egui::vec2(150.0, 40.0),
+                    egui::Button::new(egui::RichText::new("🔄 Incremental Sync").size(16.0))
+                ).clicked() {
+                    self.view = AppView::Syncing;
+                }
+            });
             
-            ui.horizontal(|ui| {
-                ui.label("📦");
-                ui.label("Drop multiple files to create an archive");
-            });
-            ui.horizontal(|ui| {
-                ui.label("📂");
-                ui.label("Drop an archive file to extract it");
-            });
+            ui.add_space(40.0);
+            
+            // Feature highlights
+            egui::Frame::none()
+                .fill(self.theme.colors.panel_bg)
+                .rounding(self.theme.rounding)
+                .inner_margin(egui::Margin::same(20.0))
+                .show(ui, |ui| {
+                    ui.columns(3, |columns| {
+                        columns[0].vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("⚡").size(32.0));
+                            ui.label(egui::RichText::new("Lightning Fast").size(16.0).strong());
+                            ui.add_space(5.0);
+                            ui.label(egui::RichText::new("Multi-threaded compression\nwith real-time progress").size(12.0).color(self.theme.colors.text_weak));
+                        });
+                        
+                        columns[1].vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("🎯").size(32.0));
+                            ui.label(egui::RichText::new("Smart Selection").size(16.0).strong());
+                            ui.add_space(5.0);
+                            ui.label(egui::RichText::new("Automatic format detection\nand optimal compression").size(12.0).color(self.theme.colors.text_weak));
+                        });
+                        
+                        columns[2].vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("🔒").size(32.0));
+                            ui.label(egui::RichText::new("Secure & Reliable").size(16.0).strong());
+                            ui.add_space(5.0);
+                            ui.label(egui::RichText::new("Safe extraction with\npath traversal protection").size(12.0).color(self.theme.colors.text_weak));
+                        });
+                    });
+                });
         });
     }
     
@@ -73,7 +180,7 @@ impl FluxApp {
     pub(super) fn process_messages(&mut self) {
         // Process log messages from tracing
         if let Some(log_receiver) = &self.log_receiver {
-            while let Ok(log_msg) = log_receiver.try_recv() {
+            while let Ok((level, log_msg)) = log_receiver.try_recv() {
                 // Add timestamp to log message
                 let now = SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
@@ -84,7 +191,8 @@ impl FluxApp {
                 let secs = secs % 60;
                 let millis = now.subsec_millis();
                 
-                self.logs.push(format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, log_msg));
+                let timestamped_msg = format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, log_msg);
+                self.logs.push((level, timestamped_msg));
                 
                 // Keep log size reasonable (max 1000 entries)
                 if self.logs.len() > 1000 {
@@ -147,7 +255,20 @@ impl FluxApp {
                             info!("Task failed: {}", err);
                             
                             // Add error notification
-                            self.toasts.error(format!("Operation failed: {}", err));
+                            self.toasts.error("Operation failed - click for details");
+                            
+                            // Store error details for modal
+                            let summary = match self.view {
+                                AppView::Packing => "Failed to create archive",
+                                AppView::Extracting => "Failed to extract files",
+                                _ => "Operation failed",
+                            };
+                            
+                            // Parse error for better formatting
+                            let details = format!("Error Details:\n\n{}\n\nPlease check:\n• File permissions\n• Available disk space\n• File paths are correct\n• Archive format is supported", err);
+                            
+                            self.error_details = Some((summary.to_string(), details));
+                            self.show_error_modal = true;
                         }
                         TaskResult::Cancelled => {
                             self.status_text = "Operation cancelled".to_string();
@@ -170,7 +291,9 @@ impl FluxApp {
                     let secs = secs % 60;
                     let millis = now.subsec_millis();
                     
-                    self.logs.push(format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, message));
+                    let timestamped_msg = format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, message);
+                    // For messages from ToUi::Log, default to INFO level
+                    self.logs.push((tracing::Level::INFO, timestamped_msg));
                     
                     // Keep log size reasonable (max 1000 entries)
                     if self.logs.len() > 1000 {
@@ -184,12 +307,16 @@ impl FluxApp {
 
 impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply theme
+        self.theme.apply(ctx);
         // Update window title based on current state
         let title = match (self.view, self.is_busy) {
             (AppView::Packing, true) => "Flux - Packing...",
             (AppView::Packing, false) => "Flux - Pack Files",
             (AppView::Extracting, true) => "Flux - Extracting...",
             (AppView::Extracting, false) => "Flux - Extract Archive",
+            (AppView::Syncing, true) => "Flux - Syncing...",
+            (AppView::Syncing, false) => "Flux - Incremental Backup",
             (AppView::Welcome, _) => "Flux - File Archiver",
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_string()));
@@ -359,21 +486,127 @@ impl eframe::App for FluxApp {
                         }
                     }
                 }
+                AppView::Syncing => {
+                    // Handle sync view actions
+                    if let Some(action) = draw_sync_view(
+                        ctx,
+                        ui,
+                        &self.sync_source_dir,
+                        &self.sync_target_archive,
+                        &self.sync_manifest_path,
+                        self.is_busy,
+                    ) {
+                        match action {
+                            SyncAction::SelectSourceDir => {
+                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                    self.sync_source_dir = Some(dir);
+                                }
+                            }
+                            SyncAction::SelectTargetArchive => {
+                                if let Some(file) = rfd::FileDialog::new()
+                                    .set_file_name("backup.tar.zst")
+                                    .add_filter("Tar Archives", &["tar", "tar.gz", "tar.zst", "tar.xz"])
+                                    .save_file() {
+                                    self.sync_target_archive = Some(file.clone());
+                                    // Check for existing manifest
+                                    let manifest_path = file.with_extension("manifest.json");
+                                    if manifest_path.exists() {
+                                        self.sync_manifest_path = Some(manifest_path);
+                                    } else {
+                                        self.sync_manifest_path = None;
+                                    }
+                                }
+                            }
+                            SyncAction::StartSync => {
+                                self.start_sync_task();
+                            }
+                            SyncAction::ViewManifest => {
+                                if let Some(manifest_path) = &self.sync_manifest_path {
+                                    // Show manifest details (could open in external editor or show in modal)
+                                    self.toasts.info(format!("Manifest at: {}", manifest_path.display()));
+                                }
+                            }
+                            SyncAction::Clear => {
+                                self.sync_source_dir = None;
+                                self.sync_target_archive = None;
+                                self.sync_manifest_path = None;
+                                self.view = AppView::Welcome;
+                                self.current_progress = 0.0;
+                                self.status_text = "Ready".to_string();
+                            }
+                            SyncAction::Cancel => {
+                                self.cancel_task();
+                            }
+                        }
+                    }
+                }
             }
         });
         
-        // Log panel toggle at bottom
-        egui::TopBottomPanel::bottom("log_panel_toggle").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.show_log_panel, "📋 Show Logs");
-                if self.show_log_panel {
-                    ui.separator();
-                    if ui.button("Clear Logs").clicked() {
-                        self.logs.clear();
+        // Status bar with log panel toggle at bottom
+        egui::TopBottomPanel::bottom("status_bar")
+            .min_height(24.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // Log panel toggle
+                    ui.checkbox(&mut self.show_log_panel, "📋 Show Logs");
+                    
+                    // Log count with level breakdown
+                    if !self.logs.is_empty() {
+                        ui.separator();
+                        
+                        let error_count = self.logs.iter().filter(|(l, _)| matches!(l, &Level::ERROR)).count();
+                        let warn_count = self.logs.iter().filter(|(l, _)| matches!(l, &Level::WARN)).count();
+                        let _info_count = self.logs.iter().filter(|(l, _)| matches!(l, &Level::INFO)).count();
+                        
+                        ui.weak(format!("Total: {}", self.logs.len()));
+                        
+                        if error_count > 0 {
+                            ui.separator();
+                            ui.colored_label(
+                                egui::Color32::from_rgb(255, 100, 100),
+                                format!("Errors: {}", error_count)
+                            );
+                        }
+                        
+                        if warn_count > 0 {
+                            ui.separator();
+                            ui.colored_label(
+                                egui::Color32::from_rgb(255, 200, 100),
+                                format!("Warnings: {}", warn_count)
+                            );
+                        }
+                        
+                        if self.show_log_panel {
+                            ui.separator();
+                            if ui.button("🗑 Clear All").clicked() {
+                                self.logs.clear();
+                            }
+                        }
                     }
-                }
+                    
+                    // Right-aligned status indicators
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Theme toggle button
+                        let theme_icon = match self.theme.mode {
+                            crate::theme::ThemeMode::Light => "🌞",
+                            crate::theme::ThemeMode::Dark => "🌙",
+                        };
+                        if ui.button(theme_icon).on_hover_text("Toggle theme").clicked() {
+                            self.theme.toggle();
+                        }
+                        
+                        ui.separator();
+                        
+                        if self.is_busy {
+                            ui.spinner();
+                            ui.label("Working...");
+                        } else {
+                            ui.weak("Ready");
+                        }
+                    });
+                });
             });
-        });
         
         // Log panel
         if self.show_log_panel {
@@ -383,17 +616,110 @@ impl eframe::App for FluxApp {
                 .min_height(100.0)
                 .max_height(400.0)
                 .show(ctx, |ui| {
-                    ui.heading("Logs");
+                    // Header with controls
+                    ui.horizontal(|ui| {
+                        ui.heading("📋 Logs");
+                        
+                        ui.separator();
+                        
+                        // Search box
+                        ui.label("🔍");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.log_filter)
+                                .desired_width(200.0)
+                                .hint_text("Filter logs...")
+                        );
+                        
+                        ui.separator();
+                        
+                        // Level filter buttons
+                        ui.label("Level:");
+                        
+                        let all_selected = self.log_level_filter.is_none();
+                        if ui.selectable_label(all_selected, "All").clicked() {
+                            self.log_level_filter = None;
+                        }
+                        
+                        let error_selected = matches!(self.log_level_filter, Some(Level::ERROR));
+                        if ui.selectable_label(error_selected, egui::RichText::new("Error").color(egui::Color32::from_rgb(255, 100, 100))).clicked() {
+                            self.log_level_filter = Some(Level::ERROR);
+                        }
+                        
+                        let warn_selected = matches!(self.log_level_filter, Some(Level::WARN));
+                        if ui.selectable_label(warn_selected, egui::RichText::new("Warn").color(egui::Color32::from_rgb(255, 200, 100))).clicked() {
+                            self.log_level_filter = Some(Level::WARN);
+                        }
+                        
+                        let info_selected = matches!(self.log_level_filter, Some(Level::INFO));
+                        if ui.selectable_label(info_selected, "Info").clicked() {
+                            self.log_level_filter = Some(Level::INFO);
+                        }
+                        
+                        let debug_selected = matches!(self.log_level_filter, Some(Level::DEBUG));
+                        if ui.selectable_label(debug_selected, egui::RichText::new("Debug").color(egui::Color32::from_rgb(150, 150, 150))).clicked() {
+                            self.log_level_filter = Some(Level::DEBUG);
+                        }
+                        
+                        // Right-aligned export button
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("💾 Export").clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .set_file_name("flux_logs.txt")
+                                    .add_filter("Text files", &["txt"])
+                                    .save_file() {
+                                    if let Err(e) = self.export_logs(&path) {
+                                        self.toasts.error(format!("Failed to export logs: {}", e));
+                                    } else {
+                                        self.toasts.success("Logs exported successfully");
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    
                     ui.separator();
                     
+                    // Log content area
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                             
-                            for log in &self.logs {
-                                ui.monospace(log);
+                            let filter_lower = self.log_filter.to_lowercase();
+                            let filtered_logs: Vec<_> = self.logs.iter()
+                                .filter(|(level, log)| {
+                                    // Apply level filter
+                                    if let Some(filter_level) = &self.log_level_filter {
+                                        if level != filter_level {
+                                            return false;
+                                        }
+                                    }
+                                    
+                                    // Apply text filter
+                                    if !filter_lower.is_empty() && !log.to_lowercase().contains(&filter_lower) {
+                                        return false;
+                                    }
+                                    
+                                    true
+                                })
+                                .collect();
+                            
+                            if filtered_logs.is_empty() && !self.logs.is_empty() {
+                                ui.weak("No logs match the current filter");
+                            } else {
+                                for (level, log) in filtered_logs {
+                                    // Color code based on log level
+                                    let color = match level {
+                                        &tracing::Level::ERROR => egui::Color32::from_rgb(255, 100, 100),
+                                        &tracing::Level::WARN => egui::Color32::from_rgb(255, 200, 100),
+                                        &tracing::Level::INFO => ui.style().visuals.text_color(),
+                                        &tracing::Level::DEBUG => egui::Color32::from_rgb(150, 150, 150),
+                                        &tracing::Level::TRACE => egui::Color32::from_rgb(100, 100, 100),
+                                    };
+                                    
+                                    ui.colored_label(color, egui::RichText::new(log).monospace());
+                                }
                             }
                         });
                 });
@@ -401,6 +727,62 @@ impl eframe::App for FluxApp {
         
         // Show toast notifications
         self.toasts.show(ctx);
+        
+        // Error modal dialog
+        if self.show_error_modal {
+            let error_details_clone = self.error_details.clone();
+            if let Some((summary, details)) = error_details_clone {
+                let mut close_modal = false;
+                
+                egui::Window::new("❌ Error Details")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.vertical(|ui| {
+                            // Error summary
+                            ui.heading(&summary);
+                            ui.add_space(10.0);
+                            
+                            // Error details in a scrollable area
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut details.as_str())
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(400.0)
+                                            .desired_rows(10)
+                                            .interactive(false)
+                                    );
+                                });
+                            
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(10.0);
+                            
+                            // Action buttons
+                            ui.horizontal(|ui| {
+                                if ui.button("📋 Copy to Clipboard").clicked() {
+                                    ui.output_mut(|o| o.copied_text = format!("{}\n\n{}", summary, details));
+                                    self.toasts.info("Error details copied to clipboard");
+                                }
+                                
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button("Close").clicked() {
+                                        close_modal = true;
+                                    }
+                                });
+                            });
+                        });
+                    });
+                
+                if close_modal {
+                    self.show_error_modal = false;
+                    self.error_details = None;
+                }
+            }
+        }
         
         // Request repaint if busy
         if self.is_busy {

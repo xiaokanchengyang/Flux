@@ -25,6 +25,19 @@ pub enum TaskCommand {
         /// Cancel flag
         cancel_flag: Arc<AtomicBool>,
     },
+    /// Sync/incremental backup
+    Sync {
+        /// Source directory
+        source_dir: PathBuf,
+        /// Target archive
+        target_archive: PathBuf,
+        /// Previous manifest path (if exists)
+        old_manifest: Option<PathBuf>,
+        /// Pack options
+        options: flux_lib::archive::PackOptions,
+        /// Cancel flag
+        cancel_flag: Arc<AtomicBool>,
+    },
 }
 
 /// Progress update from background thread

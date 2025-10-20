@@ -19,7 +19,7 @@ impl FluxApp {
         let (ui_sender, ui_receiver) = crossbeam_channel::unbounded::<ToUi>();
         
         // Create channel for log messages
-        let (log_sender, log_receiver) = crossbeam_channel::unbounded::<String>();
+        let (log_sender, log_receiver) = crossbeam_channel::unbounded::<(tracing::Level, String)>();
         
         // Re-initialize tracing with GUI integration
         crate::logging::init_tracing(Some(log_sender));
@@ -36,6 +36,9 @@ impl FluxApp {
                             }
                             TaskCommand::Extract { archive, output_dir, cancel_flag } => {
                                 crate::handle_extract_task(archive, output_dir, cancel_flag, &ui_sender);
+                            }
+                            TaskCommand::Sync { source_dir, target_archive, old_manifest, options, cancel_flag } => {
+                                crate::handle_sync_task(source_dir, target_archive, old_manifest, options, cancel_flag, &ui_sender);
                             }
                         }
                     }
@@ -68,6 +71,14 @@ impl FluxApp {
             log_receiver: Some(log_receiver),
             current_speed_bps: 0.0,
             eta_seconds: None,
+            log_filter: String::new(),
+            log_level_filter: None,
+            error_details: None,
+            show_error_modal: false,
+            theme: crate::theme::FluxTheme::default(),
+            sync_source_dir: None,
+            sync_target_archive: None,
+            sync_manifest_path: None,
         }
     }
 }

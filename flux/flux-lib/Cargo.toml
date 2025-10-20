@@ -29,8 +29,27 @@ filetime = { workspace = true }
 dirs = { workspace = true }
 glob = { workspace = true }
 indicatif = { workspace = true }
+sevenz-rust = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true }
+
+[[bench]]
+name = "compression_bench"
+harness = false
+path = "../benches/compression_bench.rs"
+
+[[bench]]
+name = "extraction_bench"
+harness = false
+path = "../benches/extraction_bench.rs"
+
+[[bench]]
+name = "comparison_bench"
+harness = false
+path = "../benches/comparison_bench.rs"

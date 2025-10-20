@@ -2,6 +2,8 @@
 
 pub mod tar;
 pub mod zip;
+pub mod sevenz;
+pub mod incremental;
 
 use crate::strategy::{Algorithm, CompressionStrategy};
 use crate::{Error, Result};
@@ -45,6 +47,7 @@ pub fn pack<P: AsRef<Path>, Q: AsRef<Path>>(
     match format {
         "tar" => tar::pack_tar(input, output),
         "zip" => zip::pack_zip(input, output),
+        "7z" => sevenz::pack_7z(input, output),
         _ => Err(Error::UnsupportedFormat(format.to_string())),
     }
 }
@@ -89,6 +92,7 @@ pub fn extract<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> Res
                 tar::extract_tar_compressed(archive, output_dir, Algorithm::Brotli)
             }
             "zip" => zip::extract_zip(archive, output_dir),
+            "7z" => sevenz::extract_7z(archive, output_dir),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
         },
     }
@@ -129,6 +133,7 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
                 tar::inspect_tar_compressed(archive, Algorithm::Brotli)
             }
             "zip" => zip::inspect_zip(archive),
+            "7z" => sevenz::inspect_7z(archive),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
         },
     }
@@ -348,6 +353,7 @@ pub fn pack_with_strategy<P: AsRef<Path>, Q: AsRef<Path>>(
             options.follow_symlinks,
         ),
         "zip" => zip::pack_zip_with_options(input, output, options.follow_symlinks),
+        "7z" => sevenz::pack_7z(input, output), // Note: 7z packing not yet supported
         _ => Err(Error::UnsupportedFormat(format)),
     }
 }
@@ -419,6 +425,7 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 options,
             ),
             "zip" => zip::extract_zip_with_options(archive, output_dir, options),
+            "7z" => sevenz::extract_7z_with_options(archive, output_dir, options),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
         },
     }

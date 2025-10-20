@@ -67,6 +67,9 @@ pub struct StrategyConfig {
     pub enable_long_mode: bool,
     /// Memory limit for compression (in MB)
     pub memory_limit: Option<u32>,
+    /// Size-based compression rules
+    #[serde(default)]
+    pub size_rules: Vec<SizeRule>,
 }
 
 impl Default for StrategyConfig {
@@ -75,8 +78,26 @@ impl Default for StrategyConfig {
             large_file_threshold: None,
             enable_long_mode: true,
             memory_limit: None,
+            size_rules: vec![
+                SizeRule {
+                    threshold: 128 * 1024 * 1024, // 128 MiB
+                    algorithm: "xz".to_string(),
+                    level: 7,
+                },
+            ],
         }
     }
+}
+
+/// Size-based compression rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SizeRule {
+    /// File size threshold in bytes
+    pub threshold: u64,
+    /// Algorithm to use for files above this threshold
+    pub algorithm: String,
+    /// Compression level
+    pub level: u32,
 }
 
 /// Custom compression rule

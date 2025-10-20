@@ -2,57 +2,132 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [1.0.0] - 2025-10-20
+## [1.7.0] - 2024-10-20
 
 ### Added
-- Initial release of Flux - a blazing-fast, intelligent file archiver and compressor
-- **Archive Formats**: Full support for TAR and ZIP formats with metadata preservation
-- **Compression Algorithms**: 
-  - Zstandard (zstd) - Default algorithm with excellent speed/ratio balance
-  - XZ/LZMA2 - Maximum compression for archival storage
-  - Gzip - Wide compatibility with existing tools
-  - Brotli - Optimized for text and web content
-  - Store - No compression for already-compressed files
-- **Smart Compression Strategy**: Automatically selects optimal algorithm based on:
-  - File type and extension detection
-  - File size considerations
-  - Content analysis for compression potential
-  - System resource availability
-- **CLI Commands**:
+- Comprehensive performance benchmark suite
+  - Compression benchmarks for different algorithms and levels
+  - Extraction performance tests
+  - Comparison with system tar command
+- GitHub Actions workflow for automated benchmarking
+- Support for benchmark result reporting in CI/CD
+
+### Changed
+- Updated minimum Rust version to 1.90.0
+
+## [1.6.0] - 2024-10-20
+
+### Added
+- Incremental backup support with manifest-based change tracking
+  - `--incremental` flag for pack command
+  - Automatic manifest generation for future incremental backups
+  - Blake3-based file hashing for change detection
+- `pack_multiple_files` function in tar module for incremental archives
+
+### Fixed
+- Improved error handling for archive operations
+
+## [1.5.0] - 2024-10-20
+
+### Added
+- Enhanced GUI features:
+  - Cancel operation support
+  - Real-time log window
+  - Toggle for showing/hiding logs
+  - Improved error messages
+
+### Changed
+- GUI now shows more detailed progress information
+- Better worker thread management in GUI
+
+## [1.4.0] - 2024-10-20
+
+### Added
+- **flux-gui**: Brand new graphical user interface
+  - Built with egui/eframe for native performance
+  - Drag-and-drop file support
+  - Auto-detection of pack/extract mode
+  - Visual compression settings
+  - Real-time progress indication
+  - Cross-platform native application
+
+### Changed
+- Project now includes three components: library, CLI, and GUI
+
+## [1.3.0] - 2024-10-20
+
+### Added
+- Interactive mode for extract command (`-i, --interactive`)
+  - Prompts for file conflict resolution
+  - Options: Overwrite, Skip, Rename, All, None, Quit
+- Partial failure exit code (4) for operations with some failures
+- New error types: `PartialFailure`, `FileExists`, `UnsupportedOperation`
+
+### Dependencies
+- Added `dialoguer` for interactive prompts
+
+## [1.2.0] - 2024-10-20
+
+### Added
+- Size-based compression rules in configuration
+  - Automatic algorithm selection based on file size thresholds
+  - Configurable via `strategy.size_rules` in config.toml
+- Automatic thread adjustment for XZ compression (forced to single thread)
+- Warning messages when XZ is selected with multiple threads
+
+### Changed
+- Enhanced smart compression strategy with file size considerations
+- Improved thread management for different algorithms
+
+## [1.1.0] - 2024-10-20
+
+### Added
+- 7z archive format support (extraction only)
+  - Full support for extracting 7z archives
+  - Metadata preservation where possible
+  - Note: 7z creation not yet supported due to library limitations
+- `sevenz-rust` dependency for 7z support
+
+### Changed
+- Updated archive format detection to include 7z files
+
+## [1.0.0] - 2024-10-20
+
+### Added
+- Initial stable release
+- Core features:
+  - TAR archive support with multiple compression algorithms
+  - ZIP archive support with metadata preservation
+  - Smart compression strategy based on file analysis
+  - Configurable compression rules
+  - Progress indication
+  - Cross-platform support (Linux, macOS, Windows)
+- Compression algorithms:
+  - Zstandard (zstd) - default
+  - XZ/LZMA2
+  - Gzip
+  - Brotli
+  - Store (no compression)
+- CLI commands:
   - `pack` - Create archives with intelligent compression
   - `extract` - Extract archives with flexible options
   - `inspect` - View archive contents without extraction
-  - `config` - Manage configuration settings
-- **Key Features**:
-  - Cross-platform support (Linux, macOS, Windows)
-  - Parallel processing utilizing all CPU cores
-  - Progress bars for long operations
-  - Configurable compression rules via TOML
-  - Symlink preservation and following options
-  - Metadata preservation (permissions, timestamps)
-  - Memory-efficient streaming for large files
-- **Developer Features**:
-  - Available as both CLI tool and Rust library
-  - Clean, modular architecture
-  - Comprehensive test suite
-  - Standardized exit codes
-  - Extensive documentation
+  - `config` - Manage configuration
+- Advanced features:
+  - Parallel processing support
+  - Metadata preservation (permissions, timestamps, symlinks)
+  - Entropy-based compression detection
+  - Custom compression rules via configuration
+  - Force compression option for already-compressed files
 
-### Performance
-- Optimized for multi-core processors with parallel file scanning
-- Efficient memory usage through streaming I/O
-- Smart skip of already-compressed file types
-- Benchmarks show 3-5x speed improvement over traditional tools
-
-### Security
-- Safe handling of symlinks with loop detection
-- Path traversal protection during extraction
-- Secure defaults for file permissions
-
-[Unreleased]: https://github.com/your-username/flux/compare/v1.0.0...HEAD
+[1.7.0]: https://github.com/your-username/flux/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/your-username/flux/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/your-username/flux/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/your-username/flux/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/your-username/flux/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/your-username/flux/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/your-username/flux/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/your-username/flux/releases/tag/v1.0.0

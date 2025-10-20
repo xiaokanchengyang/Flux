@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "flux/flux-core",
-    "flux/flux-cloud", 
-    "flux/flux-testing",
-    "apps/flux-cli",
-    "apps/flux-gui"
+    "crates/flux-core",
+    "crates/flux-cloud", 
+    "crates/flux-testing",
+    "crates/flux",
+    "crates/flux-gui"
 ]
 resolver = "2"
 

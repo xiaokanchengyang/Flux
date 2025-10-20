@@ -1,0 +1,23 @@
+[package]
+name = "flux-testing"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Testing utilities and fixtures for flux - a cross-platform file archiver"
+readme = "../README.md"
+keywords = ["testing", "test-utilities", "fixtures"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+flux-core = { path = "../flux-core" }
+tempfile = { workspace = true }
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+anyhow = { workspace = true }
+walkdir = { workspace = true }
+filetime = { workspace = true }
+
+[dev-dependencies]

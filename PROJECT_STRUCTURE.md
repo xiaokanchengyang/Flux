@@ -5,22 +5,26 @@
 Flux 项目采用了模块化的架构设计，将核心功能、应用程序和测试工具清晰地分离。
 
 ```
-/workspace/
-├── flux/                    # 核心库目录
-│   ├── flux-core/          # 核心同步 I/O 库（坚实、稳定、不变）
-│   ├── flux-cloud/         # 云适配层（异步、网络、依赖 Tokio）
-│   └── flux-testing/       # 测试工具库（共享 fixtures 和 helpers）
+flux-repository/
+├── .github/                # GitHub Actions 和配置
+├── assets/                 # 项目资源文件
+├── docs/                   # 项目文档
+├── scripts/                # 开发和构建脚本
 │
-├── apps/                   # 应用程序目录
-│   ├── flux-cli/          # CLI 工具（主要依赖 flux-core，可选依赖 flux-cloud）
-│   └── flux-gui/          # GUI 应用（主要依赖 flux-core，可选依赖 flux-cloud）
+├── crates/                 # 所有 Rust crate
+│   ├── flux/              # CLI 主程序 (二进制)
+│   ├── flux-gui/          # GUI 主程序
+│   ├── flux-core/         # 核心功能库
+│   ├── flux-cloud/        # 云存储适配层
+│   └── flux-testing/      # 测试工具库
 │
+├── examples/              # 使用示例
 ├── benches/               # 性能测试
-├── docs/                  # 文档（位于 flux/ 下）
-├── examples/              # 示例代码
-├── scripts/               # 开发和构建脚本
-├── test_data/             # 测试数据
-└── Cargo.toml            # 根工作空间配置
+│
+├── Cargo.toml            # Workspace 根配置
+├── README.md             # 项目说明
+├── CHANGELOG.md          # 变更日志
+└── CONTRIBUTING.md       # 贡献指南
 ```
 
 ## 模块说明
@@ -32,6 +36,7 @@ Flux 项目采用了模块化的架构设计，将核心功能、应用程序和
 - 智能压缩策略
 - 元数据保留
 - 安全性检查
+- 通用工具函数
 
 ### flux-cloud
 云存储适配层，提供：
@@ -47,7 +52,7 @@ Flux 项目采用了模块化的架构设计，将核心功能、应用程序和
 - 测试目录管理
 - 平台特定的测试工具
 
-### flux-cli
+### flux (CLI)
 命令行界面应用，特性：
 - 交互式和非交互式模式
 - TUI 界面支持
@@ -68,12 +73,12 @@ graph TD
     flux-core[flux-core]
     flux-cloud[flux-cloud]
     flux-testing[flux-testing]
-    flux-cli[flux-cli]
+    flux[flux CLI]
     flux-gui[flux-gui]
     
     flux-testing --> flux-core
-    flux-cli --> flux-core
-    flux-cli -.-> flux-cloud
+    flux --> flux-core
+    flux -.-> flux-cloud
     flux-gui --> flux-core
     flux-gui -.-> flux-cloud
     
@@ -120,3 +125,10 @@ cargo bench
 3. **异步扩展**：flux-cloud 提供异步能力，但作为可选依赖
 4. **共享测试**：flux-testing 避免测试代码重复
 5. **应用分离**：CLI 和 GUI 独立开发，共享核心功能
+
+## 未来扩展
+
+根据路线图，未来可能添加的 crate：
+- `flux-tui`: 专门的 TUI 实现库
+- `flux-plugin-api`: 插件系统 API 定义
+- 其他功能扩展库

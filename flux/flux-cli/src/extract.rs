@@ -100,7 +100,7 @@ pub fn extract_interactive(
             strip_components,
             hoist,
         };
-        return extract_with_options(archive, output_dir, options, show_progress, hoist);
+        return extract_with_options(archive, output_dir, options, show_progress, false);
     }
 
     // Create the extractor
@@ -276,10 +276,17 @@ pub fn extract_with_options(
     archive: &Path,
     output_dir: &Path,
     options: ExtractOptions,
-    _show_progress: bool,
+    show_progress: bool,
     _hoist: bool,
 ) -> Result<()> {
-    // For backward compatibility, use the old extraction method
+    // Note: The hoist option is already included in ExtractOptions,
+    // so we don't need the separate _hoist parameter
+    
+    // TODO: Implement progress bar for non-interactive extraction
+    if show_progress {
+        info!("Progress bar not yet implemented for non-interactive extraction");
+    }
+    
     flux_lib::archive::extract_with_options(archive, output_dir, options)?;
     Ok(())
 }

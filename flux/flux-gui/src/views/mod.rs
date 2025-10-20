@@ -5,6 +5,7 @@ pub mod extracting_view;
 pub mod sync_view;
 pub mod packing_view_modern;
 pub mod browser_view;
+pub mod browser_table_view;
 
 pub use packing_view::PackingAction;
 pub use extracting_view::{draw_extracting_view, ExtractingAction};

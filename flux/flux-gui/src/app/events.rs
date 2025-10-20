@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tracing::{debug, info, warn};
 use crate::task::TaskCommand;
+use crate::views::BrowserState;
 use super::{FluxApp, AppView};
 
 impl FluxApp {
@@ -22,11 +23,15 @@ impl FluxApp {
             if let Some(ext) = file.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
                 if matches!(ext_str.as_str(), "zip" | "tar" | "gz" | "zst" | "xz" | "7z" | "br") {
-                    // Switch to extracting view
-                    self.view = AppView::Extracting;
-                    self.input_files = files;
-                    info!(file = ?file_name, "Ready to extract archive");
-                    self.toasts.info(format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")));
+                    // Switch to browser view to explore the archive
+                    if let Err(e) = self.open_archive_browser(file.clone()) {
+                        // Fall back to extraction view if browser fails
+                        warn!("Failed to open archive browser: {}", e);
+                        self.view = AppView::Extracting;
+                        self.input_files = files;
+                        info!(file = ?file_name, "Ready to extract archive");
+                        self.toasts.info(format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")));
+                    }
                     return;
                 }
             }
@@ -36,11 +41,15 @@ impl FluxApp {
                 let name_lower = name.to_lowercase();
                 if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.zst") || 
                    name_lower.ends_with(".tar.xz") || name_lower.ends_with(".tar.br") {
-                    // Switch to extracting view
-                    self.view = AppView::Extracting;
-                    self.input_files = files;
-                    info!(file = name, "Ready to extract compressed tar archive");
-                    self.toasts.info(format!("Ready to extract: {}", name));
+                    // Switch to browser view to explore the archive
+                    if let Err(e) = self.open_archive_browser(file.clone()) {
+                        // Fall back to extraction view if browser fails
+                        warn!("Failed to open archive browser: {}", e);
+                        self.view = AppView::Extracting;
+                        self.input_files = files;
+                        info!(file = name, "Ready to extract compressed tar archive");
+                        self.toasts.info(format!("Ready to extract: {}", name));
+                    }
                     return;
                 }
             }
@@ -178,6 +187,10 @@ impl FluxApp {
                 // Should use start_sync_task instead
                 warn!("start_task called in Syncing view, use start_sync_task instead");
             }
+            AppView::Browsing => {
+                // Browser view doesn't use start_task
+                warn!("start_task called in Browsing view");
+            }
         }
     }
     
@@ -257,5 +270,59 @@ impl FluxApp {
             warn!("Missing source directory or target archive");
             self.toasts.error("Please select source directory and target archive first");
         }
+    }
+    
+    /// Open the archive browser for a given archive file
+    pub(super) fn open_archive_browser(&mut self, archive_path: PathBuf) -> Result<(), String> {
+        use flux_lib::archive;
+        
+        // Create an extractor for the archive
+        let extractor = archive::create_extractor(&archive_path)
+            .map_err(|e| format!("Failed to open archive: {}", e))?;
+        
+        // Get all entries from the archive
+        let entries_iter = extractor.entries(&archive_path)
+            .map_err(|e| format!("Failed to read archive entries: {}", e))?;
+        
+        // Collect entries into a vector
+        let mut entries = Vec::new();
+        for entry_result in entries_iter {
+            match entry_result {
+                Ok(entry) => entries.push(entry),
+                Err(e) => warn!("Failed to read entry: {}", e),
+            }
+        }
+        
+        // Create browser state
+        let browser_state = BrowserState::new(archive_path.clone(), entries);
+        
+        // Switch to browser view
+        self.view = AppView::Browsing;
+        self.browser_state = Some(browser_state);
+        
+        info!("Opened archive browser for: {:?}", archive_path);
+        self.toasts.info(format!("Browsing: {}", 
+            archive_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("archive")
+        ));
+        
+        Ok(())
+    }
+    
+    /// Extract selected entries from an archive
+    pub(super) fn extract_selected_entries(&mut self, entries: Vec<flux_lib::archive::extractor::ArchiveEntry>, _archive_path: PathBuf, _output_dir: PathBuf) {
+        // For now, we'll show a message that this is not yet implemented
+        // In the future, this would use the extractor.extract_entry method for each selected entry
+        self.toasts.info(format!("Extracting {} selected items...", entries.len()));
+        
+        // TODO: Implement actual extraction using flux_lib
+        // This would involve:
+        // 1. Creating an extractor for the archive
+        // 2. Iterating through selected entries
+        // 3. Calling extract_entry for each one
+        // 4. Showing progress updates
+        
+        self.toasts.warning("Partial extraction is coming soon!");
     }
 }

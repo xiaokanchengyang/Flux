@@ -149,6 +149,13 @@ pub fn draw_extracting_view(
             .clicked() {
             action = Some(ExtractingAction::BrowseArchive);
         }
+        
+        // Open archive browser
+        if archive_path.is_some() && ui.add_enabled(!is_busy, egui::Button::new("🔍 View Contents"))
+            .on_hover_text("Browse archive contents without extracting")
+            .clicked() {
+            action = Some(ExtractingAction::OpenBrowser);
+        }
     });
 
     action
@@ -167,4 +174,6 @@ pub enum ExtractingAction {
     Clear,
     /// Cancel the current operation
     Cancel,
+    /// Open archive browser to view contents
+    OpenBrowser,
 }

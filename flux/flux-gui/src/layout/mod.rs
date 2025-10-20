@@ -41,6 +41,13 @@ impl NavItem {
                 tooltip: "Extract archives",
             },
             NavItem {
+                id: "browse",
+                icon: regular::BINOCULARS,
+                label: "Browse",
+                view: AppView::Browsing,
+                tooltip: "Browse archive contents",
+            },
+            NavItem {
                 id: "sync",
                 icon: regular::ARROW_SQUARE_OUT,
                 label: "Sync",

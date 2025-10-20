@@ -441,6 +441,84 @@ Compressing a 1GB mixed-content directory:
 - **Zero-copy operations**: Where supported by the platform
 - **Smart threading**: Balances parallelism with resource usage
 
+## ☁️ Cloud Storage Support (Experimental)
+
+Flux now supports direct operations with cloud storage providers! Built with the `cloud` feature, Flux can read from and write to Amazon S3, Google Cloud Storage, and Azure Blob Storage without temporary files.
+
+### Building with Cloud Support
+
+```bash
+# Build flux-cli with cloud features
+cd flux/flux-cli
+cargo build --release --features cloud
+
+# Or install directly
+cargo install flux-cli --features cloud
+```
+
+### Supported Cloud Providers
+
+#### Amazon S3
+```bash
+# Set AWS credentials
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_REGION=us-east-1  # optional
+
+# Pack directly to S3
+flux pack -i ./data -o s3://my-bucket/backups/data.tar.zst
+
+# Extract from S3
+flux extract s3://my-bucket/backups/data.tar.zst -o ./restored
+
+# Inspect S3 archive
+flux inspect s3://my-bucket/backups/data.tar.zst
+```
+
+#### Google Cloud Storage
+```bash
+# Set GCS credentials
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+
+# Use with GCS URLs
+flux pack -i ./logs -o gs://my-bucket/archives/logs.tar.gz
+flux extract gs://my-bucket/archives/logs.tar.gz
+```
+
+#### Azure Blob Storage
+```bash
+# Set Azure credentials
+export AZURE_STORAGE_ACCOUNT_NAME=myaccount
+export AZURE_STORAGE_ACCOUNT_KEY=your_key
+
+# Use with Azure URLs
+flux pack -i ./backup -o az://container/backup.tar.xz
+flux extract az://container/backup.tar.xz
+```
+
+### Cloud Features
+
+- **Direct Streaming**: No temporary files - data streams directly to/from cloud
+- **Smart Buffering**: 8MB buffers optimize for cloud latency
+- **Multipart Uploads**: Automatic for large files (>16MB)
+- **All Features Work**: Smart compression, progress bars, all algorithms supported
+
+### Examples
+
+```bash
+# Smart compression to S3
+flux pack -i /var/log --smart -o s3://logs/server-$(date +%Y%m%d).tar
+
+# Interactive extraction from cloud
+flux extract gs://backups/archive.tar.gz --interactive
+
+# Maximum compression to cloud
+flux pack -i ./docs -o az://archives/docs.tar.xz --algo xz --level 9
+
+# Extract with path stripping from S3
+flux extract s3://bucket/archive.tar.gz --strip-components 1
+```
+
 ## 🔧 Advanced Features
 
 ### Metadata Preservation
@@ -502,11 +580,11 @@ flux inspect archive.tar.zst --json | jq '.files[] | select(.size > 1048576)'
 - ✅ Rust 1.90.0 support
 
 ### v2.0.0 (Q1 2025)
+- ✅ Cloud storage integration (S3, GCS, Azure) - Experimental
 - 🔲 7z archive creation support
 - 🔲 RAR archive support (read-only)
 - 🔲 LZ4 compression (ultra-fast mode)
 - 🔲 Shell completions (bash, zsh, fish, powershell)
-- 🔲 Cloud storage integration (S3, GCS, Azure)
 - 🔲 Encryption support
 - 🔲 Multi-volume archives
 - 🔲 Plugin system for custom formats

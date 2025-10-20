@@ -242,7 +242,7 @@ fn ui(f: &mut Frame, app: &App) {
             ]
             .as_ref(),
         )
-        .split(f.size());
+        .split(f.area());
 
     // Header
     let header = if app.search_query.is_empty() {

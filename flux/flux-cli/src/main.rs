@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -8,6 +8,9 @@ use tracing_subscriber::EnvFilter;
 mod interactive;
 mod extract;
 mod tui;
+
+#[cfg(feature = "cloud")]
+mod cloud_handler;
 
 #[derive(Parser)]
 #[command(name = "flux")]
@@ -221,9 +224,52 @@ fn run() -> Result<()> {
             interactive,
             hoist,
         } => {
-            info!("Extracting archive: {:?}", archive);
+            let archive_str = archive.to_string_lossy();
+            info!("Extracting archive: {}", archive_str);
             let output_dir = output.unwrap_or_else(|| PathBuf::from("."));
 
+            // Check if the archive is a cloud path
+            #[cfg(feature = "cloud")]
+            if cloud_handler::is_cloud_path(&archive_str) {
+                info!("Detected cloud archive: {}", cloud_handler::describe_cloud_location(&archive_str));
+                
+                // Check credentials
+                cloud_handler::check_cloud_credentials(&archive_str)?;
+                
+                // Create cloud reader
+                let mut reader = cloud_handler::create_cloud_reader(&archive_str)?;
+                
+                // Create a temporary file to store the archive
+                let temp_dir = tempfile::tempdir()?;
+                let temp_archive = temp_dir.path().join("cloud_archive.tar");
+                let mut temp_file = std::fs::File::create(&temp_archive)?;
+                
+                // Download the archive to temp file
+                info!("Downloading archive from cloud storage...");
+                std::io::copy(&mut reader, &mut temp_file)?;
+                drop(temp_file);
+                
+                // Extract from the temporary file
+                if interactive {
+                    info!("Interactive mode enabled - prompting for file conflicts");
+                    extract::extract_interactive(&temp_archive, &output_dir, strip_components, cli.progress, hoist)?;
+                } else {
+                    let options = flux_lib::archive::ExtractOptions {
+                        overwrite,
+                        skip,
+                        rename,
+                        strip_components,
+                        hoist,
+                    };
+
+                    flux_lib::archive::extract_with_options(&temp_archive, &output_dir, options)?;
+                }
+                
+                info!("Extraction complete");
+                return Ok(());
+            }
+
+            // Regular local file extraction
             if interactive {
                 info!("Interactive mode enabled - prompting for file conflicts");
                 extract::extract_interactive(&archive, &output_dir, strip_components, cli.progress, hoist)?;
@@ -253,7 +299,8 @@ fn run() -> Result<()> {
             force_compress,
             incremental,
         } => {
-            info!("Packing {:?} into {:?}", input, output);
+            let output_str = output.to_string_lossy();
+            info!("Packing {:?} into {}", input, output_str);
 
             // Warn about XZ thread limitations
             if let Some(ref algorithm) = algo {
@@ -262,6 +309,47 @@ fn run() -> Result<()> {
                 }
             }
 
+            // Check if output is a cloud path
+            #[cfg(feature = "cloud")]
+            if cloud_handler::is_cloud_path(&output_str) {
+                info!("Detected cloud output: {}", cloud_handler::describe_cloud_location(&output_str));
+                
+                // Check credentials
+                cloud_handler::check_cloud_credentials(&output_str)?;
+                
+                if incremental.is_some() {
+                    error!("Incremental backup to cloud storage is not yet supported");
+                    return Err(anyhow::anyhow!("Incremental backup to cloud storage is not yet supported"));
+                }
+                
+                // Create a temporary file for the archive
+                let temp_dir = tempfile::tempdir()?;
+                let temp_archive = temp_dir.path().join("temp_archive.tar");
+                
+                // Pack to temporary file
+                let options = flux_lib::archive::PackOptions {
+                    smart,
+                    algorithm: algo,
+                    level,
+                    threads,
+                    force_compress,
+                    follow_symlinks,
+                };
+
+                flux_lib::archive::pack_with_strategy(&input, &temp_archive, format.as_deref(), options)?;
+                
+                // Upload to cloud
+                info!("Uploading archive to cloud storage...");
+                let mut cloud_writer = cloud_handler::create_cloud_writer(&output_str)?;
+                let mut temp_file = std::fs::File::open(&temp_archive)?;
+                std::io::copy(&mut temp_file, &mut cloud_writer)?;
+                cloud_writer.flush()?;
+                
+                info!("Packing complete - archive uploaded to cloud");
+                return Ok(());
+            }
+
+            // Regular local file packing
             if let Some(manifest_path) = incremental {
                 // Incremental backup mode
                 info!("Performing incremental backup using manifest: {:?}", manifest_path);
@@ -315,9 +403,41 @@ fn run() -> Result<()> {
         }
 
         Commands::Inspect { archive, json, interactive, tree } => {
-            info!("Inspecting archive: {:?}", archive);
+            let archive_str = archive.to_string_lossy();
+            info!("Inspecting archive: {}", archive_str);
 
-            let entries = flux_lib::inspect(&archive)?;
+            let entries = {
+                #[cfg(feature = "cloud")]
+                {
+                    if cloud_handler::is_cloud_path(&archive_str) {
+                        info!("Detected cloud archive: {}", cloud_handler::describe_cloud_location(&archive_str));
+                        
+                        // Check credentials
+                        cloud_handler::check_cloud_credentials(&archive_str)?;
+                        
+                        // Create cloud reader
+                        let mut reader = cloud_handler::create_cloud_reader(&archive_str)?;
+                        
+                        // Create a temporary file to store the archive
+                        let temp_dir = tempfile::tempdir()?;
+                        let temp_archive = temp_dir.path().join("cloud_archive.tar");
+                        let mut temp_file = std::fs::File::create(&temp_archive)?;
+                        
+                        // Download the archive to temp file
+                        info!("Downloading archive from cloud storage...");
+                        std::io::copy(&mut reader, &mut temp_file)?;
+                        drop(temp_file);
+                        
+                        // Inspect the temporary file
+                        flux_lib::inspect(&temp_archive)?
+                    } else {
+                        flux_lib::inspect(&archive)?
+                    }
+                }
+                
+                #[cfg(not(feature = "cloud"))]
+                flux_lib::inspect(&archive)?
+            };
 
             if interactive {
                 // Interactive TUI mode

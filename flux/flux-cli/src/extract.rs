@@ -7,7 +7,7 @@ use flux_lib::archive::{create_extractor, ExtractOptions};
 use flux_lib::Error as FluxError;
 use indicatif::{ProgressBar, ProgressStyle};
 // use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::{debug, info, warn};
 
 /// Interactive conflict handler for CLI

@@ -90,6 +90,7 @@ impl FluxApp {
             sync_target_archive: None,
             sync_manifest_path: None,
             show_about_dialog: false,
+            sidebar: crate::layout::Sidebar::default(),
         }
     }
 }

@@ -11,6 +11,8 @@ mod app;
 mod logging;
 mod progress_tracker;
 mod theme;
+mod layout;
+mod components;
 
 use task::{ToUi, ProgressUpdate, TaskResult};
 use app::FluxApp;

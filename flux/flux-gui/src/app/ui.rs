@@ -5,7 +5,9 @@ use std::time::SystemTime;
 use tracing::{info, Level};
 
 use crate::task::{ToUi, TaskResult};
-use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction, draw_sync_view, SyncAction};
+use crate::views::{draw_packing_view_modern, PackingAction, draw_extracting_view, ExtractingAction, draw_sync_view, SyncAction};
+use crate::layout::NavItem;
+use crate::components::{FluxButton, DropZone, set_theme_in_context};
 use super::{FluxApp, AppView};
 
 impl FluxApp {
@@ -36,68 +38,19 @@ impl FluxApp {
             ui.add_space(40.0);
             
             // Stylish header with gradient-like effect
-            ui.heading(egui::RichText::new("🚀 Flux Archive Manager").size(32.0).color(self.theme.colors.primary));
+            ui.heading(egui::RichText::new("Flux Archive Manager").size(32.0).color(self.theme.colors.primary));
             ui.add_space(10.0);
             ui.label(egui::RichText::new("Modern, fast, and intelligent file compression").size(16.0).color(self.theme.colors.text_weak));
             ui.add_space(40.0);
             
-            // Large drop zone with modern styling and animations
-            let drop_zone_size = egui::vec2(ui.available_width() * 0.8, 220.0);
-            let (rect, response) = ui.allocate_exact_size(drop_zone_size, egui::Sense::click_and_drag());
-            
-            // Draw drop zone with theme colors
-            let painter = ui.painter();
-            let is_hovered = response.hovered();
-            
-            // Animated background with hover effect
-            ui.ctx().animate_bool_with_time(response.id, is_hovered, 0.2);
-            let hover_factor = ui.ctx().animate_bool(response.id, is_hovered);
-            
-            // Background with smooth hover effect
-            let bg_color = self.theme.colors.panel_bg.lerp_to_gamma(
-                self.theme.colors.primary.linear_multiply(0.1),
-                hover_factor
-            );
-            painter.rect_filled(rect, self.theme.rounding * 2.0, bg_color);
-            
-            // Border with animated effect
-            let border_color = self.theme.colors.text_weak.linear_multiply(0.5).lerp_to_gamma(
-                self.theme.colors.primary,
-                hover_factor
-            );
-            let border_width = 2.0 + hover_factor;
-            painter.rect_stroke(rect, self.theme.rounding * 2.0, egui::Stroke::new(border_width, border_color));
-            
-            // Centered icon and text with animation
-            let center = rect.center();
-            let icon_offset = 5.0 * hover_factor * (ui.ctx().frame_nr() as f32 * 0.1).sin();
-            
-            painter.text(
-                center - egui::vec2(0.0, 20.0 + icon_offset),
-                egui::Align2::CENTER_CENTER,
-                "⬇",
-                egui::FontId::proportional(48.0 + 4.0 * hover_factor),
-                self.theme.colors.primary.linear_multiply(0.7 + 0.3 * hover_factor),
+            // Modern drop zone
+            let drop_response = ui.add(
+                DropZone::new("main_drop")
+                    .text("Drop files or folders here")
+                    .subtext("or click to browse")
             );
             
-            painter.text(
-                center + egui::vec2(0.0, 30.0),
-                egui::Align2::CENTER_CENTER,
-                "Drop files or folders here",
-                egui::FontId::proportional(20.0),
-                self.theme.colors.text,
-            );
-            
-            painter.text(
-                center + egui::vec2(0.0, 55.0),
-                egui::Align2::CENTER_CENTER,
-                "or click to browse",
-                egui::FontId::proportional(14.0),
-                self.theme.colors.text_weak,
-            );
-            
-            // Handle click on drop zone
-            if response.clicked() {
+            if drop_response.clicked() {
                 if let Some(files) = rfd::FileDialog::new().pick_files() {
                     self.analyze_dropped_files(files);
                 }
@@ -105,15 +58,16 @@ impl FluxApp {
             
             ui.add_space(40.0);
             
-            // Quick action buttons
+            // Quick action buttons using FluxButton
             ui.horizontal(|ui| {
                 ui.add_space((ui.available_width() - 530.0) / 2.0); // Center the buttons
                 
                 // Create Archive button
-                self.theme.style_button(ui, true);
-                if ui.add_sized(
-                    egui::vec2(150.0, 40.0),
-                    egui::Button::new(egui::RichText::new("📦 Create Archive").size(16.0))
+                if ui.add(
+                    FluxButton::new("Create Archive")
+                        .primary()
+                        .icon(egui_phosphor::regular::PACKAGE)
+                        .min_size(egui::vec2(150.0, 40.0))
                 ).clicked() {
                     if let Some(files) = rfd::FileDialog::new().pick_files() {
                         self.analyze_dropped_files(files);
@@ -123,10 +77,10 @@ impl FluxApp {
                 ui.add_space(20.0);
                 
                 // Extract Archive button
-                self.theme.style_button(ui, false);
-                if ui.add_sized(
-                    egui::vec2(150.0, 40.0),
-                    egui::Button::new(egui::RichText::new("📂 Extract Archive").size(16.0))
+                if ui.add(
+                    FluxButton::new("Extract Archive")
+                        .icon(egui_phosphor::regular::FOLDER_OPEN)
+                        .min_size(egui::vec2(150.0, 40.0))
                 ).clicked() {
                     if let Some(file) = rfd::FileDialog::new()
                         .add_filter("Archives", &["zip", "tar", "gz", "zst", "xz", "7z", "br"])
@@ -138,10 +92,10 @@ impl FluxApp {
                 ui.add_space(20.0);
                 
                 // Incremental Backup button
-                self.theme.style_button(ui, false);
-                if ui.add_sized(
-                    egui::vec2(150.0, 40.0),
-                    egui::Button::new(egui::RichText::new("🔄 Incremental Sync").size(16.0))
+                if ui.add(
+                    FluxButton::new("Incremental Sync")
+                        .icon(egui_phosphor::regular::ARROW_SQUARE_OUT)
+                        .min_size(egui::vec2(150.0, 40.0))
                 ).clicked() {
                     self.view = AppView::Syncing;
                 }
@@ -334,8 +288,10 @@ impl FluxApp {
 
 impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply theme
+        // Apply theme and set it in context for components
         self.theme.apply(ctx);
+        set_theme_in_context(ctx, &self.theme);
+        
         // Update window title based on current state
         let title = match (self.view, self.is_busy) {
             (AppView::Packing, true) => "Flux - Packing...",
@@ -364,249 +320,189 @@ impl eframe::App for FluxApp {
         // Process incoming messages
         self.process_messages();
         
-        // Top menu bar
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New Task").clicked() {
-                        self.reset_to_welcome();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Exit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-                
-                ui.menu_button("View", |ui| {
-                    if ui.checkbox(&mut self.show_log_panel, "Show Logs").clicked() {
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("Toggle Theme").clicked() {
-                        self.theme = if self.theme.is_dark_mode() {
-                            crate::theme::FluxTheme::light()
-                        } else {
-                            crate::theme::FluxTheme::dark()
-                        };
-                        ui.close_menu();
-                    }
-                });
-                
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About Flux").clicked() {
-                        self.show_about_dialog = true;
-                        ui.close_menu();
+        // Navigation items
+        let nav_items = NavItem::default_items();
+        
+        // Draw sidebar
+        egui::SidePanel::left("sidebar")
+            .resizable(false)
+            .exact_width(self.sidebar.current_width())
+            .show(ctx, |ui| {
+                self.sidebar.show(ctx, ui, &mut self.view, &self.theme, &nav_items);
+            });
+        
+        // Main content area
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Add some padding
+            ui.add_space(20.0);
+            
+            egui::Frame::none()
+                .inner_margin(egui::Margin::symmetric(20.0, 0.0))
+                .show(ui, |ui| {
+                    // Render view based on current state
+                    match self.view {
+                        AppView::Welcome => {
+                            self.draw_welcome_view(ctx, ui);
+                        }
+                        AppView::Packing => {
+                            // Handle packing view actions
+                            if let Some(action) = draw_packing_view_modern(
+                                    ctx,
+                                    ui,
+                                    &self.input_files,
+                                    &self.output_path,
+                                    &mut self.compression_format,
+                                    self.is_busy,
+                                    &self.theme,
+                                    self.current_progress,
+                                    &self.status_text,
+                                ) {
+                                    match action {
+                                        PackingAction::RemoveFile(idx) => {
+                                            if idx < self.input_files.len() {
+                                                self.input_files.remove(idx);
+                                                // If no files left, go back to welcome
+                                                if self.input_files.is_empty() {
+                                                    self.view = AppView::Welcome;
+                                                }
+                                            }
+                                        }
+                                        PackingAction::SelectOutput => {
+                                            // Determine file extension and filter based on compression format
+                                            let (extension, filter_name) = match self.compression_format.as_str() {
+                                                "tar.gz" => ("tar.gz", "TAR GZ Archive"),
+                                                "tar.zst" => ("tar.zst", "TAR ZST Archive"),
+                                                "tar.xz" => ("tar.xz", "TAR XZ Archive"),
+                                                "zip" => ("zip", "ZIP Archive"),
+                                                _ => ("tar.gz", "Archive"),
+                                            };
+                                            
+                                            if let Some(path) = rfd::FileDialog::new()
+                                                .set_file_name(&format!("archive.{}", extension))
+                                                .add_filter(filter_name, &[extension])
+                                                .save_file() {
+                                                self.output_path = Some(path);
+                                            }
+                                        }
+                                        PackingAction::AddMoreFiles => {
+                                            if let Some(files) = rfd::FileDialog::new().pick_files() {
+                                                self.input_files.extend(files);
+                                            }
+                                        }
+                                        PackingAction::StartPacking => {
+                                            self.start_task();
+                                        }
+                                        PackingAction::ClearAll => {
+                                            self.input_files.clear();
+                                            self.output_path = None;
+                                            self.view = AppView::Welcome;
+                                            self.current_progress = 0.0;
+                                            self.status_text = "Ready".to_string();
+                                        }
+                                        PackingAction::Cancel => {
+                                            self.cancel_task();
+                                        }
+                                    }
+                                }
+                                    }
+                                    AppView::Extracting => {
+                                        // Get the archive path for the view
+                                        let archive_path = self.input_files.first().cloned();
+                            
+                            // Handle extracting view actions
+                            if let Some(action) = draw_extracting_view(
+                                ctx,
+                                ui,
+                                &archive_path,
+                                &self.output_path,
+                                self.is_busy,
+                            ) {
+                                match action {
+                                    ExtractingAction::SelectOutputDir => {
+                                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                            self.output_path = Some(path);
+                                        }
+                                    }
+                                    ExtractingAction::StartExtracting => {
+                                        self.start_task();
+                                    }
+                                    ExtractingAction::BrowseArchive => {
+                                        if let Some(path) = rfd::FileDialog::new()
+                                            .add_filter("Archives", &["zip", "tar", "gz", "zst", "xz", "7z"])
+                                            .pick_file() {
+                                            self.input_files = vec![path];
+                                        }
+                                    }
+                                    ExtractingAction::Clear => {
+                                        self.input_files.clear();
+                                        self.output_path = None;
+                                        self.view = AppView::Welcome;
+                                        self.current_progress = 0.0;
+                                        self.status_text = "Ready".to_string();
+                                    }
+                                    ExtractingAction::Cancel => {
+                                        self.cancel_task();
+                                    }
+                                }
+                            }
+                                }
+                                AppView::Syncing => {
+                                    // Handle sync view actions
+                            if let Some(action) = draw_sync_view(
+                                ctx,
+                                ui,
+                                &self.sync_source_dir,
+                                &self.sync_target_archive,
+                                &self.sync_manifest_path,
+                                self.is_busy,
+                            ) {
+                                match action {
+                                    SyncAction::SelectSourceDir => {
+                                        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                            self.sync_source_dir = Some(dir);
+                                        }
+                                    }
+                                    SyncAction::SelectTargetArchive => {
+                                        if let Some(file) = rfd::FileDialog::new()
+                                            .set_file_name("backup.tar.zst")
+                                            .add_filter("Tar Archives", &["tar", "tar.gz", "tar.zst", "tar.xz"])
+                                            .save_file() {
+                                            self.sync_target_archive = Some(file.clone());
+                                            // Check for existing manifest
+                                            let manifest_path = file.with_extension("manifest.json");
+                                            if manifest_path.exists() {
+                                                self.sync_manifest_path = Some(manifest_path);
+                                            } else {
+                                                self.sync_manifest_path = None;
+                                            }
+                                        }
+                                    }
+                                    SyncAction::StartSync => {
+                                        self.start_sync_task();
+                                    }
+                                    SyncAction::ViewManifest => {
+                                        if let Some(manifest_path) = &self.sync_manifest_path {
+                                            // Show manifest details (could open in external editor or show in modal)
+                                            self.toasts.info(format!("Manifest at: {}", manifest_path.display()));
+                                        }
+                                    }
+                                    SyncAction::Clear => {
+                                        self.sync_source_dir = None;
+                                        self.sync_target_archive = None;
+                                        self.sync_manifest_path = None;
+                                        self.view = AppView::Welcome;
+                                        self.current_progress = 0.0;
+                                        self.status_text = "Ready".to_string();
+                                    }
+                                    SyncAction::Cancel => {
+                                        self.cancel_task();
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             });
-        });
-        
-        // Main UI
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Always show progress/status at the top if there's activity
-            if self.is_busy || self.current_progress > 0.0 {
-                ui.horizontal(|ui| {
-                    ui.label(&self.status_text);
-                    
-                    // Show "New Task" button when task is complete
-                    if !self.is_busy && self.current_progress >= 1.0 {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("🆕 Start New Task").clicked() {
-                                self.reset_to_welcome();
-                            }
-                        });
-                    }
-                });
-                
-                // Show progress bar
-                ui.add(egui::ProgressBar::new(self.current_progress).show_percentage());
-                
-                // Show current file being processed
-                if !self.current_file.is_empty() && self.is_busy {
-                    ui.horizontal(|ui| {
-                        ui.weak("Processing:");
-                        ui.monospace(&self.current_file);
-                    });
-                    
-                    // Show speed and ETA on a separate line
-                    if self.current_speed_bps > 0.0 {
-                        ui.horizontal(|ui| {
-                            ui.weak("Speed:");
-                            ui.label(crate::progress_tracker::format_speed(self.current_speed_bps));
-                            
-                            if let Some(eta) = self.eta_seconds {
-                                ui.separator();
-                                ui.weak("ETA:");
-                                ui.label(crate::progress_tracker::format_duration(eta));
-                            }
-                        });
-                    }
-                }
-                ui.separator();
-                ui.add_space(10.0);
-            }
-            
-            // Render view based on current state
-            match self.view {
-                AppView::Welcome => {
-                    self.draw_welcome_view(ctx, ui);
-                }
-                AppView::Packing => {
-                    // Handle packing view actions
-                    if let Some(action) = draw_packing_view(
-                        ctx,
-                        ui,
-                        &self.input_files,
-                        &self.output_path,
-                        &mut self.compression_format,
-                        self.is_busy,
-                    ) {
-                        match action {
-                            PackingAction::RemoveFile(idx) => {
-                                if idx < self.input_files.len() {
-                                    self.input_files.remove(idx);
-                                    // If no files left, go back to welcome
-                                    if self.input_files.is_empty() {
-                                        self.view = AppView::Welcome;
-                                    }
-                                }
-                            }
-                            PackingAction::SelectOutput => {
-                                // Determine file extension and filter based on compression format
-                                let (extension, filter_name) = match self.compression_format.as_str() {
-                                    "tar.gz" => ("tar.gz", "TAR GZ Archive"),
-                                    "tar.zst" => ("tar.zst", "TAR ZST Archive"),
-                                    "tar.xz" => ("tar.xz", "TAR XZ Archive"),
-                                    "zip" => ("zip", "ZIP Archive"),
-                                    _ => ("tar.gz", "Archive"),
-                                };
-                                
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .set_file_name(&format!("archive.{}", extension))
-                                    .add_filter(filter_name, &[extension])
-                                    .save_file() {
-                                    self.output_path = Some(path);
-                                }
-                            }
-                            PackingAction::AddMoreFiles => {
-                                if let Some(files) = rfd::FileDialog::new().pick_files() {
-                                    self.input_files.extend(files);
-                                }
-                            }
-                            PackingAction::StartPacking => {
-                                self.start_task();
-                            }
-                            PackingAction::ClearAll => {
-                                self.input_files.clear();
-                                self.output_path = None;
-                                self.view = AppView::Welcome;
-                                self.current_progress = 0.0;
-                                self.status_text = "Ready".to_string();
-                            }
-                            PackingAction::Cancel => {
-                                self.cancel_task();
-                            }
-                        }
-                    }
-                }
-                AppView::Extracting => {
-                    // Get the archive path for the view
-                    let archive_path = self.input_files.first().cloned();
-                    
-                    // Handle extracting view actions
-                    if let Some(action) = draw_extracting_view(
-                        ctx,
-                        ui,
-                        &archive_path,
-                        &self.output_path,
-                        self.is_busy,
-                    ) {
-                        match action {
-                            ExtractingAction::SelectOutputDir => {
-                                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                    self.output_path = Some(path);
-                                }
-                            }
-                            ExtractingAction::StartExtracting => {
-                                self.start_task();
-                            }
-                            ExtractingAction::BrowseArchive => {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Archives", &["zip", "tar", "gz", "zst", "xz", "7z"])
-                                    .pick_file() {
-                                    self.input_files = vec![path];
-                                }
-                            }
-                            ExtractingAction::Clear => {
-                                self.input_files.clear();
-                                self.output_path = None;
-                                self.view = AppView::Welcome;
-                                self.current_progress = 0.0;
-                                self.status_text = "Ready".to_string();
-                            }
-                            ExtractingAction::Cancel => {
-                                self.cancel_task();
-                            }
-                        }
-                    }
-                }
-                AppView::Syncing => {
-                    // Handle sync view actions
-                    if let Some(action) = draw_sync_view(
-                        ctx,
-                        ui,
-                        &self.sync_source_dir,
-                        &self.sync_target_archive,
-                        &self.sync_manifest_path,
-                        self.is_busy,
-                    ) {
-                        match action {
-                            SyncAction::SelectSourceDir => {
-                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                                    self.sync_source_dir = Some(dir);
-                                }
-                            }
-                            SyncAction::SelectTargetArchive => {
-                                if let Some(file) = rfd::FileDialog::new()
-                                    .set_file_name("backup.tar.zst")
-                                    .add_filter("Tar Archives", &["tar", "tar.gz", "tar.zst", "tar.xz"])
-                                    .save_file() {
-                                    self.sync_target_archive = Some(file.clone());
-                                    // Check for existing manifest
-                                    let manifest_path = file.with_extension("manifest.json");
-                                    if manifest_path.exists() {
-                                        self.sync_manifest_path = Some(manifest_path);
-                                    } else {
-                                        self.sync_manifest_path = None;
-                                    }
-                                }
-                            }
-                            SyncAction::StartSync => {
-                                self.start_sync_task();
-                            }
-                            SyncAction::ViewManifest => {
-                                if let Some(manifest_path) = &self.sync_manifest_path {
-                                    // Show manifest details (could open in external editor or show in modal)
-                                    self.toasts.info(format!("Manifest at: {}", manifest_path.display()));
-                                }
-                            }
-                            SyncAction::Clear => {
-                                self.sync_source_dir = None;
-                                self.sync_target_archive = None;
-                                self.sync_manifest_path = None;
-                                self.view = AppView::Welcome;
-                                self.current_progress = 0.0;
-                                self.status_text = "Ready".to_string();
-                            }
-                            SyncAction::Cancel => {
-                                self.cancel_task();
-                            }
-                        }
-                    }
-                }
-            }
-        });
         
         // Status bar with log panel toggle at bottom
         egui::TopBottomPanel::bottom("status_bar")

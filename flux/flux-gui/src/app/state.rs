@@ -7,6 +7,7 @@ use egui_notify::Toasts;
 use crate::task::TaskCommand;
 use crate::task::ToUi;
 use crate::theme::FluxTheme;
+use crate::layout::Sidebar;
 use serde::{Deserialize, Serialize};
 
 /// Application view states
@@ -82,6 +83,8 @@ pub struct FluxApp {
     pub(super) sync_manifest_path: Option<PathBuf>,
     /// Show about dialog
     pub(super) show_about_dialog: bool,
+    /// Sidebar navigation
+    pub(super) sidebar: Sidebar,
 }
 
 /// Persistent application state

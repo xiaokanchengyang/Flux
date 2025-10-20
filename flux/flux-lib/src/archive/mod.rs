@@ -4,6 +4,10 @@ pub mod tar;
 pub mod zip;
 pub mod sevenz;
 pub mod incremental;
+pub mod extractor;
+pub mod tar_extractor;
+pub mod zip_extractor;
+pub mod sevenz_extractor;
 
 use crate::strategy::{Algorithm, CompressionStrategy};
 use crate::{Error, Result};
@@ -134,6 +138,57 @@ pub fn inspect<P: AsRef<Path>>(archive: P) -> Result<Vec<ArchiveEntry>> {
             }
             "zip" => zip::inspect_zip(archive),
             "7z" => sevenz::inspect_7z(archive),
+            _ => Err(Error::UnsupportedFormat(ext.to_string())),
+        },
+    }
+}
+
+/// Create an extractor for the given archive file
+pub fn create_extractor(path: &Path) -> Result<Box<dyn extractor::Extractor>> {
+    // Detect format by extension
+    let ext = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
+
+    // Check for double extensions
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let double_ext = if stem.ends_with(".tar") {
+        format!("tar.{}", ext)
+    } else {
+        ext.to_string()
+    };
+
+    match double_ext.as_str() {
+        "tar" => Ok(Box::new(tar_extractor::TarExtractor::new())),
+        "tar.gz" | "tgz" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+            Algorithm::Gzip,
+        ))),
+        "tar.zst" | "tzst" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+            Algorithm::Zstd,
+        ))),
+        "tar.xz" | "txz" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+            Algorithm::Xz,
+        ))),
+        "tar.br" => Ok(Box::new(tar_extractor::TarExtractor::with_compression(
+            Algorithm::Brotli,
+        ))),
+        _ => match ext {
+            "tar" => Ok(Box::new(tar_extractor::TarExtractor::new())),
+            "gz" if stem.ends_with(".tar") => Ok(Box::new(
+                tar_extractor::TarExtractor::with_compression(Algorithm::Gzip),
+            )),
+            "zst" if stem.ends_with(".tar") => Ok(Box::new(
+                tar_extractor::TarExtractor::with_compression(Algorithm::Zstd),
+            )),
+            "xz" if stem.ends_with(".tar") => Ok(Box::new(
+                tar_extractor::TarExtractor::with_compression(Algorithm::Xz),
+            )),
+            "br" if stem.ends_with(".tar") => Ok(Box::new(
+                tar_extractor::TarExtractor::with_compression(Algorithm::Brotli),
+            )),
+            "zip" => Ok(Box::new(zip_extractor::ZipExtractor::new())),
+            "7z" => Ok(Box::new(sevenz_extractor::SevenZExtractor::new())),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
         },
     }

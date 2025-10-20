@@ -2,9 +2,9 @@
 
 use crate::archive::{PackOptions, tar};
 use crate::manifest::{Manifest, ManifestDiff};
-use crate::{Error, Result};
+use crate::Result;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
+use tracing::info;
 
 /// Pack files incrementally based on manifest
 pub fn pack_incremental<P: AsRef<Path>, Q: AsRef<Path>, R: AsRef<Path>>(

@@ -6,6 +6,7 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod interactive;
+mod extract;
 
 #[derive(Parser)]
 #[command(name = "flux")]
@@ -181,20 +182,19 @@ fn run() -> Result<()> {
             let output_dir = output.unwrap_or_else(|| PathBuf::from("."));
 
             if interactive {
-                // TODO: Implement interactive extraction
-                // For now, we'll use the non-interactive mode
                 info!("Interactive mode enabled - prompting for file conflicts");
-            }
-            
-            let options = flux_lib::archive::ExtractOptions {
-                overwrite,
-                skip,
-                rename,
-                strip_components,
-            };
+                extract::extract_interactive(&archive, &output_dir, strip_components, cli.progress)?;
+            } else {
+                let options = flux_lib::archive::ExtractOptions {
+                    overwrite,
+                    skip,
+                    rename,
+                    strip_components,
+                };
 
-            flux_lib::archive::extract_with_options(&archive, &output_dir, options)?;
-            info!("Extraction complete");
+                flux_lib::archive::extract_with_options(&archive, &output_dir, options)?;
+                info!("Extraction complete");
+            }
         }
 
         Commands::Pack {
@@ -399,6 +399,7 @@ fn map_error_to_exit_code(err: &anyhow::Error) -> i32 {
             flux_lib::Error::FileExists(_) => 3,
             flux_lib::Error::UnsupportedOperation(_) => 3,
             flux_lib::Error::PartialFailure { .. } => 4,
+            flux_lib::Error::NotFound(_) => 2,
         }
     } else if err.is::<std::io::Error>() {
         2

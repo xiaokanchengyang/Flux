@@ -1,4 +1,4 @@
-use flux_lib::strategy::{Algorithm, CompressionStrategy};
+use flux_core::strategy::{Algorithm, CompressionStrategy};
 use std::fs;
 use tempfile::TempDir;
 

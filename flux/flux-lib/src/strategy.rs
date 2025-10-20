@@ -582,9 +582,70 @@ impl CompressionStrategy {
     }
 }
 
+/// Determine compression strategy for a specific file entry
+pub fn determine_compression_for_entry<P: AsRef<Path>>(
+    path: P,
+    size: u64,
+    config: &Config,
+) -> CompressionStrategy {
+    let path = path.as_ref();
+    
+    // Check size-based rules first (highest priority)
+    for size_rule in &config.strategy.size_rules {
+        if size >= size_rule.threshold {
+            info!(
+                "File {:?} size {} bytes exceeds threshold {} bytes, using {} algorithm with level {}",
+                path.file_name().unwrap_or_default(),
+                size,
+                size_rule.threshold,
+                size_rule.algorithm,
+                size_rule.level
+            );
+            
+            if let Ok(algorithm) = size_rule.algorithm.parse::<Algorithm>() {
+                let mut strategy = CompressionStrategy {
+                    algorithm,
+                    level: size_rule.level,
+                    threads: 1, // Will be adjusted later based on algorithm
+                    force_compress: false,
+                    long_mode: false,
+                };
+                
+                // Adjust threads based on algorithm and size
+                match algorithm {
+                    Algorithm::Xz => strategy.threads = 1, // XZ should always use single thread
+                    Algorithm::Zstd => {
+                        if size < 10 * 1024 * 1024 {
+                            strategy.threads = 1;
+                        } else if size < 100 * 1024 * 1024 {
+                            strategy.threads = 2;
+                        } else {
+                            strategy.threads = (rayon::current_num_threads() / 2).max(2);
+                        }
+                    }
+                    Algorithm::Brotli => {
+                        if size < 50 * 1024 * 1024 {
+                            strategy.threads = 1;
+                        } else {
+                            strategy.threads = (rayon::current_num_threads() / 3).max(1);
+                        }
+                    }
+                    _ => strategy.threads = rayon::current_num_threads(),
+                }
+                
+                return strategy;
+            }
+        }
+    }
+    
+    // If no size rule matches, use smart strategy
+    CompressionStrategy::smart(path, None, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Config, SizeRule};
     use std::fs;
     use tempfile::TempDir;
 
@@ -636,5 +697,33 @@ mod tests {
             strategy.algorithm,
             Algorithm::Zstd | Algorithm::Store
         ));
+    }
+
+    #[test]
+    fn test_determine_compression_for_entry_with_size_rules() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("large_file.bin");
+        fs::write(&test_file, "test content").unwrap();
+
+        // Create config with size rules
+        let mut config = Config::default();
+        config.strategy.size_rules = vec![
+            SizeRule {
+                threshold: 100 * 1024 * 1024, // 100 MiB
+                algorithm: "xz".to_string(),
+                level: 7,
+            },
+        ];
+
+        // Test file below threshold
+        let strategy = determine_compression_for_entry(&test_file, 50 * 1024 * 1024, &config);
+        // Should use smart strategy (not xz) since it's below threshold
+        assert_ne!(strategy.algorithm, Algorithm::Xz);
+
+        // Test file above threshold
+        let strategy = determine_compression_for_entry(&test_file, 150 * 1024 * 1024, &config);
+        assert_eq!(strategy.algorithm, Algorithm::Xz);
+        assert_eq!(strategy.level, 7);
+        assert_eq!(strategy.threads, 1); // XZ should always use single thread
     }
 }

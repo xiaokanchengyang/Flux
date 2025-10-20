@@ -59,6 +59,10 @@ enum Commands {
         /// Enable interactive mode for conflict resolution
         #[arg(long, short = 'i', conflicts_with_all = ["overwrite", "skip", "rename"])]
         interactive: bool,
+
+        /// If the archive contains a single folder, hoist its contents to the output directory
+        #[arg(long, help = "If the archive contains a single folder, hoist its contents to the output directory")]
+        hoist: bool,
     },
 
     /// Pack files into an archive
@@ -215,19 +219,21 @@ fn run() -> Result<()> {
             rename,
             strip_components,
             interactive,
+            hoist,
         } => {
             info!("Extracting archive: {:?}", archive);
             let output_dir = output.unwrap_or_else(|| PathBuf::from("."));
 
             if interactive {
                 info!("Interactive mode enabled - prompting for file conflicts");
-                extract::extract_interactive(&archive, &output_dir, strip_components, cli.progress)?;
+                extract::extract_interactive(&archive, &output_dir, strip_components, cli.progress, hoist)?;
             } else {
                 let options = flux_lib::archive::ExtractOptions {
                     overwrite,
                     skip,
                     rename,
                     strip_components,
+                    hoist,
                 };
 
                 flux_lib::archive::extract_with_options(&archive, &output_dir, options)?;

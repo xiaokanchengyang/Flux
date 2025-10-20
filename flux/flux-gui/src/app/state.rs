@@ -90,6 +90,8 @@ pub struct FluxApp {
     pub(super) sidebar: Sidebar,
     /// Browser state when viewing archive contents
     pub(super) browser_state: Option<BrowserState>,
+    /// Extract with directory hoisting enabled
+    pub(super) extract_hoist: bool,
 }
 
 /// Persistent application state

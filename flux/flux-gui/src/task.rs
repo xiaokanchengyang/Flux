@@ -22,6 +22,8 @@ pub enum TaskCommand {
         archive: PathBuf,
         /// Directory to extract to
         output_dir: PathBuf,
+        /// Enable smart directory hoisting
+        hoist: bool,
         /// Cancel flag
         cancel_flag: Arc<AtomicBool>,
     },

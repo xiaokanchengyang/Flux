@@ -286,6 +286,8 @@ pub struct ExtractOptions {
     pub rename: bool,
     /// Remove the specified number of leading path elements
     pub strip_components: Option<usize>,
+    /// If the archive contains a single folder, hoist its contents to the output directory
+    pub hoist: bool,
 }
 
 impl Default for ExtractOptions {
@@ -295,6 +297,7 @@ impl Default for ExtractOptions {
             skip: true,
             rename: false,
             strip_components: None,
+            hoist: false,
         }
     }
 }
@@ -439,6 +442,9 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
     let archive = archive.as_ref();
     let output_dir = output_dir.as_ref();
 
+    // Store whether hoist is enabled before moving options
+    let should_hoist = options.hoist;
+
     // Detect format by extension
     let ext = archive
         .extension()
@@ -453,7 +459,8 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         ext.to_string()
     };
 
-    match double_ext.as_str() {
+    // Perform the extraction
+    let result = match double_ext.as_str() {
         "tar" => tar::extract_tar_with_options(archive, output_dir, options),
         "tar.gz" | "tgz" => {
             tar::extract_tar_compressed_with_options(archive, output_dir, Algorithm::Gzip, options)
@@ -500,5 +507,64 @@ pub fn extract_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
             "7z" => sevenz::extract_7z_with_options(archive, output_dir, options),
             _ => Err(Error::UnsupportedFormat(ext.to_string())),
         },
+    };
+
+    // If extraction succeeded and hoist is enabled, perform directory hoisting
+    if result.is_ok() && should_hoist {
+        if let Err(e) = hoist_single_directory(output_dir) {
+            info!("Directory hoisting failed: {}", e);
+            // We don't fail the entire operation if hoisting fails
+        }
     }
+
+    result
+}
+
+/// Hoist the contents of a single subdirectory to the parent directory
+/// 
+/// This function checks if the output directory contains exactly one subdirectory,
+/// and if so, moves all contents of that subdirectory up one level and removes
+/// the now-empty subdirectory.
+pub fn hoist_single_directory(output_dir: &Path) -> Result<()> {
+    use std::fs;
+    
+    // Ensure the output directory exists
+    if !output_dir.exists() {
+        return Ok(());
+    }
+
+    // Read the directory entries
+    let entries: Vec<_> = fs::read_dir(output_dir)?
+        .filter_map(|e| e.ok())
+        .collect();
+
+    // Check if there's exactly one entry and it's a directory
+    if entries.len() == 1 {
+        let entry = &entries[0];
+        let entry_path = entry.path();
+        
+        if entry_path.is_dir() {
+            info!("Found single directory to hoist: {:?}", entry_path);
+            
+            // Move all contents from the subdirectory to the parent
+            let subdir_entries = fs::read_dir(&entry_path)?;
+            
+            for sub_entry in subdir_entries {
+                let sub_entry = sub_entry?;
+                let source = sub_entry.path();
+                let dest_name = source.file_name()
+                    .ok_or_else(|| Error::Other("Invalid filename".to_string()))?;
+                let dest = output_dir.join(dest_name);
+                
+                info!("Moving {:?} to {:?}", source, dest);
+                fs::rename(&source, &dest)?;
+            }
+            
+            // Remove the now-empty directory
+            fs::remove_dir(&entry_path)?;
+            info!("Removed empty directory: {:?}", entry_path);
+        }
+    }
+    
+    Ok(())
 }

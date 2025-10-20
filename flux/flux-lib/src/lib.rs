@@ -9,6 +9,8 @@ pub mod error;
 pub mod metadata;
 pub mod progress;
 pub mod strategy;
+pub mod interactive;
+pub mod manifest;
 
 pub use error::{Error, Result};
 

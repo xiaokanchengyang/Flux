@@ -1,9 +1,9 @@
 [workspace]
-members = ["flux-lib", "flux-cli"]
+members = ["flux-lib", "flux-cli", "flux-gui"]
 resolver = "2"
 
 [workspace.package]
-version = "1.0.0"
+version = "1.7.0"
 edition = "2021"
 authors = ["Flux Contributors"]
 license = "MIT"
@@ -39,3 +39,12 @@ filetime = "0.2"
 chrono = "0.4"
 dirs = "5.0"
 glob = "0.3"
+sevenz-rust = "0.6"
+dialoguer = "0.11"
+egui = "0.28"
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow"] }
+crossbeam-channel = "0.5"
+rfd = "0.14"
+blake3 = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.8"

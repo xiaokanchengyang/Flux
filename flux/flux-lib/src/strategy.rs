@@ -56,6 +56,18 @@ impl std::str::FromStr for Algorithm {
     }
 }
 
+impl std::fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Algorithm::Store => write!(f, "store"),
+            Algorithm::Gzip => write!(f, "gzip"),
+            Algorithm::Zstd => write!(f, "zstd"),
+            Algorithm::Xz => write!(f, "xz"),
+            Algorithm::Brotli => write!(f, "brotli"),
+        }
+    }
+}
+
 /// Compression strategy configuration
 #[derive(Debug, Clone)]
 pub struct CompressionStrategy {
@@ -228,6 +240,9 @@ impl CompressionStrategy {
         // Store user preferences for later application
         let user_level = level;
         let user_threads = threads;
+        
+        // Get file size early for size-based rules
+        let file_size = path.metadata().map(|m| m.len()).unwrap_or(0);
 
         // Rule 0: Check custom rules from configuration (skip in tests)
         if std::env::var("FLUX_NO_CONFIG").is_err() {
@@ -243,6 +258,33 @@ impl CompressionStrategy {
                         custom.threads = threads;
                     }
                     return custom;
+                }
+                
+                // Check size-based rules
+                for size_rule in &config.strategy.size_rules {
+                    if file_size >= size_rule.threshold {
+                        info!(
+                            "File size {} bytes exceeds threshold {} bytes, using {} algorithm with level {}",
+                            file_size, size_rule.threshold, size_rule.algorithm, size_rule.level
+                        );
+                        
+                        if let Ok(algorithm) = size_rule.algorithm.parse::<Algorithm>() {
+                            strategy.algorithm = algorithm;
+                            strategy.level = user_level.unwrap_or(size_rule.level);
+                            
+                            // Apply automatic thread adjustment for the selected algorithm
+                            strategy.threads = user_threads.unwrap_or_else(|| {
+                                match algorithm {
+                                    Algorithm::Xz => 1, // XZ should always use single thread
+                                    Algorithm::Zstd => (current_num_threads() / 2).max(2),
+                                    Algorithm::Brotli => (current_num_threads() / 3).max(1),
+                                    _ => current_num_threads(),
+                                }
+                            });
+                            
+                            return strategy;
+                        }
+                    }
                 }
             }
         }

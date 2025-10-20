@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/your-username/flux/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/flux/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust Version](https://img.shields.io/badge/rust-1.78%2B-blue.svg)](https://www.rust-lang.org)
+[![Rust Version](https://img.shields.io/badge/rust-1.90%2B-blue.svg)](https://www.rust-lang.org)
 [![Crates.io](https://img.shields.io/crates/v/flux-cli.svg)](https://crates.io/crates/flux-cli)
 [![Downloads](https://img.shields.io/crates/d/flux-cli.svg)](https://crates.io/crates/flux-cli)
 
@@ -25,14 +25,16 @@ Flux revolutionizes file compression with smart algorithm selection, parallel pr
 - **Optimized Algorithms**: Fine-tuned implementations of industry-standard compression
 
 ### 🛠️ **Comprehensive Format Support**
-- **Archives**: TAR, ZIP (with full metadata preservation)
+- **Archives**: TAR, ZIP, 7z (extract only) - all with full metadata preservation
 - **Compression**: Zstandard, XZ, Gzip, Brotli
-- **Coming Soon**: 7z, RAR (read-only)
+- **Incremental Backups**: Manifest-based change tracking
+- **Smart Threading**: Automatic optimization based on algorithm and file size
 
 ### 🎯 **Developer-Friendly**
-- **Dual-Use**: Available as both CLI tool and Rust library
+- **Triple-Use**: Available as CLI tool, Rust library, and GUI application
 - **Cross-Platform**: Native support for Linux, macOS, and Windows
 - **Extensible**: Clean architecture for adding new formats and algorithms
+- **Performance Tested**: Comprehensive benchmark suite included
 
 ## 🚀 Quick Start
 
@@ -108,6 +110,7 @@ flux pack [OPTIONS] <INPUT> -o <OUTPUT>
 | `--force-compress` | Compress already-compressed files | `--force-compress` |
 | `--exclude <PATTERN>` | Exclude files matching pattern | `--exclude "*.log"` |
 | `--progress` | Show progress bar | `--progress` |
+| `--incremental <MANIFEST>` | Create incremental backup using previous manifest | `--incremental backup.manifest.json` |
 
 #### Examples
 
@@ -126,6 +129,14 @@ flux pack ./project -o source.tar.zst --exclude "target/*" --exclude "*.o"
 
 # Follow symlinks and compress everything
 flux pack ./data -o data.tar.zst --follow-symlinks --force-compress
+
+# Create initial backup with manifest
+flux pack ./important -o backup.tar.zst
+# Creates backup.tar.zst and backup.manifest.json
+
+# Create incremental backup (only changed files)
+flux pack ./important -o backup-inc.tar.zst --incremental backup.manifest.json
+# Only packs files that changed since last backup
 ```
 
 ### Extract Command
@@ -146,6 +157,7 @@ flux extract [OPTIONS] <ARCHIVE>
 | `--rename` | Rename conflicting files | `--rename` |
 | `--strip-components <N>` | Remove N leading path components | `--strip-components 1` |
 | `--progress` | Show progress bar | `--progress` |
+| `-i, --interactive` | Interactive mode for conflict resolution | `--interactive` |
 
 #### Examples
 
@@ -164,6 +176,13 @@ flux extract backup.tar.zst --rename
 
 # Strip directory prefix (useful for tarballs with single root dir)
 flux extract project.tar.gz --strip-components 1
+
+# Interactive conflict resolution
+flux extract update.tar.zst --interactive
+# Prompts for each conflict: [O]verwrite, [S]kip, [R]ename, [A]ll, [N]one, [Q]uit
+
+# Extract 7z archive
+flux extract archive.7z -o ./extracted
 ```
 
 ### Inspect Command
@@ -205,6 +224,39 @@ flux config [OPTIONS]
 | `--show` | Display current configuration |
 | `--edit` | Open configuration in editor |
 | `--path` | Show configuration file path |
+
+## 🖥️ GUI Application
+
+Flux includes a modern graphical interface for users who prefer visual interaction:
+
+### Features
+- **Drag & Drop**: Simply drop files or folders to compress
+- **Auto-detection**: Automatically detects whether to pack or extract
+- **Visual Progress**: Real-time progress bars and status updates
+- **Advanced Options**: Full control over compression settings
+- **Operation Log**: Detailed log window for troubleshooting
+
+### Running the GUI
+
+```bash
+# Install and run
+cargo install flux-gui
+flux-gui
+
+# Or from source
+cd flux/flux-gui
+cargo run --release
+```
+
+### GUI Screenshots
+
+The GUI provides an intuitive interface with:
+- Drop zone for files
+- Mode selection (Pack/Extract)
+- Compression algorithm selection
+- Level and thread controls
+- Real-time progress indication
+- Cancel operation support
 
 ## ⚙️ Configuration
 
@@ -314,19 +366,29 @@ flux/
 │   ├── src/
 │   │   ├── archive/       # Archive format implementations
 │   │   │   ├── tar.rs     # TAR format support
-│   │   │   └── zip.rs     # ZIP format support
-│   │   ├── compress/      # Compression algorithms
-│   │   │   ├── zstd.rs    # Zstandard
-│   │   │   ├── xz.rs      # XZ/LZMA2
-│   │   │   ├── gzip.rs    # Gzip/Deflate
-│   │   │   └── brotli.rs  # Brotli
+│   │   │   ├── zip.rs     # ZIP format support
+│   │   │   ├── sevenz.rs  # 7z format support (extract only)
+│   │   │   └── incremental.rs # Incremental backup support
 │   │   ├── strategy.rs    # Smart compression logic
+│   │   ├── manifest.rs    # Backup manifest handling
+│   │   ├── interactive.rs # Interactive mode support
 │   │   ├── progress.rs    # Progress reporting
 │   │   └── lib.rs         # Public API
 │   └── tests/             # Comprehensive test suite
 ├── flux-cli/              # CLI application
 │   └── src/
-│       └── main.rs        # Command-line interface
+│       ├── main.rs        # Command-line interface
+│       └── interactive.rs # CLI interactive mode
+├── flux-gui/              # GUI application (NEW!)
+│   └── src/
+│       ├── main.rs        # GUI entry point
+│       ├── app.rs         # Main application logic
+│       ├── state.rs       # Application state management
+│       └── worker.rs      # Background worker threads
+├── benches/               # Performance benchmarks
+│   ├── compression_bench.rs
+│   ├── extraction_bench.rs
+│   └── comparison_bench.rs
 └── docs/                  # Documentation
 ```
 
@@ -334,7 +396,23 @@ flux/
 
 Flux is optimized for real-world performance:
 
-### Benchmarks
+### Running Benchmarks
+
+```bash
+# Run all benchmarks
+cd flux
+cargo bench
+
+# Run specific benchmark suite
+cargo bench compression
+cargo bench extraction
+cargo bench comparison
+
+# Generate HTML reports (in target/criterion/)
+cargo bench -- --output-format bencher
+```
+
+### Performance Results
 
 Compressing a 1GB mixed-content directory:
 
@@ -346,6 +424,15 @@ Compressing a 1GB mixed-content directory:
 | 7-Zip | 62.1s | 234 MB | 76.4% |
 
 *Benchmarked on AMD Ryzen 9 5900X, 32GB RAM, NVMe SSD*
+
+### Benchmark Suite Includes
+
+- **Small Files**: Performance with 1000+ small files
+- **Large Files**: Single 100MB+ file compression
+- **Compression Levels**: Level 1-9 performance comparison
+- **Smart Strategy**: Automatic vs manual algorithm selection
+- **Extract Performance**: Decompression speed tests
+- **System Comparison**: Flux vs system tar command
 
 ### Key Optimizations
 
@@ -392,35 +479,43 @@ flux pack ~/project -o - | ssh backup@server "cat > project.tar.zst"
 flux inspect archive.tar.zst --json | jq '.files[] | select(.size > 1048576)'
 ```
 
-## 🚀 Roadmap
+## 🚀 Feature History & Roadmap
 
-### v1.0.0 (Current Release)
+### v1.0.0 ✅
 - ✅ Core archiving (TAR, ZIP)
-- ✅ Multiple compression algorithms
+- ✅ Multiple compression algorithms (Zstd, XZ, Gzip, Brotli)
 - ✅ Smart compression strategy
 - ✅ Cross-platform support
 - ✅ Comprehensive CLI
 - ✅ Progress indication
 - ✅ Configuration system
 
-### v1.1.0 (Q1 2025)
-- 🔲 7z archive support (read-only)
+### v1.1.0 - v1.7.0 (Current Release) ✅
+- ✅ 7z archive support (extract only)
+- ✅ Enhanced compression strategy with size-based rules
+- ✅ Automatic thread optimization for XZ
+- ✅ Interactive mode for conflict resolution
+- ✅ Partial failure exit codes
+- ✅ GUI application (egui-based)
+- ✅ Incremental backup support with manifests
+- ✅ Performance benchmark suite
+- ✅ Rust 1.90.0 support
+
+### v2.0.0 (Q1 2025)
+- 🔲 7z archive creation support
 - 🔲 RAR archive support (read-only)
 - 🔲 LZ4 compression (ultra-fast mode)
-- 🔲 Interactive mode for conflict resolution
 - 🔲 Shell completions (bash, zsh, fish, powershell)
-
-### v1.2.0 (Q2 2025)
 - 🔲 Cloud storage integration (S3, GCS, Azure)
-- 🔲 Incremental backup support
 - 🔲 Encryption support
 - 🔲 Multi-volume archives
-
-### v2.0.0 (Future)
-- 🔲 GUI application (Tauri-based)
 - 🔲 Plugin system for custom formats
+
+### Future Plans
 - 🔲 Network streaming support
 - 🔲 Mobile companion app
+- 🔲 Web-based UI
+- 🔲 Distributed compression
 
 ## 🤝 Contributing
 

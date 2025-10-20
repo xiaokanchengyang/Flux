@@ -971,3 +971,46 @@ fn get_unique_filename(path: &Path) -> PathBuf {
         counter += 1;
     }
 }
+
+/// Pack multiple files into a tar archive
+pub fn pack_multiple_files<P: AsRef<Path>, Q: AsRef<Path>>(
+    files: &[P],
+    output: Q,
+    base_dir: Option<&Path>,
+    follow_symlinks: bool,
+) -> Result<()> {
+    let output = output.as_ref();
+    
+    info!("Packing {} files into {:?}", files.len(), output);
+    
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    
+    let file = File::create(output)?;
+    let mut builder = Builder::new(file);
+    
+    for file_path in files {
+        let file_path = file_path.as_ref();
+        
+        // Calculate the archive path
+        let archive_path = if let Some(base) = base_dir {
+            file_path.strip_prefix(base)
+                .unwrap_or(file_path)
+        } else {
+            file_path
+        };
+        
+        if file_path.is_file() {
+            pack_file(&mut builder, file_path, archive_path, follow_symlinks)?;
+        } else if file_path.is_dir() {
+            pack_directory(&mut builder, file_path, archive_path, follow_symlinks)?;
+        }
+    }
+    
+    builder.finish()?;
+    info!("Successfully packed {} files", files.len());
+    
+    Ok(())
+}

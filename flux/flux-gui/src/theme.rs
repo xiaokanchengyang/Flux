@@ -47,6 +47,11 @@ pub struct FluxTheme {
 }
 
 impl FluxTheme {
+    /// Check if the theme is in dark mode
+    pub fn is_dark_mode(&self) -> bool {
+        matches!(self.mode, ThemeMode::Dark)
+    }
+    
     /// Create a new light theme
     pub fn light() -> Self {
         Self {

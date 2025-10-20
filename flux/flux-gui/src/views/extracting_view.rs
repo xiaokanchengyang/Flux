@@ -85,22 +85,35 @@ pub fn draw_extracting_view(
 
     ui.add_space(20.0);
 
-    // Output directory selection
+    // Output directory selection with visual guidance
     ui.horizontal(|ui| {
         ui.label("Output directory:");
         
         // Display current output directory or placeholder text
+        let has_output = output_dir.is_some();
         let output_text = output_dir.as_ref()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "No directory selected".to_string());
+            .unwrap_or_else(|| "⚠️ No directory selected".to_string());
         
-        ui.label(&output_text);
+        if has_output {
+            ui.label(&output_text);
+        } else {
+            ui.colored_label(egui::Color32::from_rgb(255, 152, 0), &output_text);
+        }
         
         // Browse button to select output directory
         if ui.add_enabled(!is_busy, egui::Button::new("Browse...")).clicked() {
             action = Some(ExtractingAction::SelectOutputDir);
         }
     });
+    
+    // Show helpful tip if output not selected
+    if output_dir.is_none() && !is_busy {
+        ui.add_space(5.0);
+        ui.indent("extract_tip", |ui| {
+            ui.label(egui::RichText::new("💡 Select where to extract the files").size(12.0).color(ui.style().visuals.weak_text_color()));
+        });
+    }
 
     // Show a note about extraction
     ui.add_space(10.0);

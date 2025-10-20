@@ -13,7 +13,7 @@ use crate::task::{TaskCommand, ToUi};
 
 impl FluxApp {
     /// Create a new application instance
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Create channels for communication
         let (task_sender, task_receiver) = crossbeam_channel::unbounded::<TaskCommand>();
         let (ui_sender, ui_receiver) = crossbeam_channel::unbounded::<ToUi>();
@@ -23,6 +23,16 @@ impl FluxApp {
         
         // Re-initialize tracing with GUI integration
         crate::logging::init_tracing(Some(log_sender));
+        
+        // Load persistent state
+        let persistence = Self::load_persistence(cc.storage);
+        
+        // Create theme based on saved preference
+        let theme = if persistence.dark_mode {
+            crate::theme::FluxTheme::dark()
+        } else {
+            crate::theme::FluxTheme::light()
+        };
         
         // Spawn background thread
         let task_handle = thread::spawn(move || {
@@ -62,12 +72,12 @@ impl FluxApp {
             total_bytes: 0,
             input_files: Vec::new(),
             output_path: None,
-            compression_format: "tar.zst".to_string(),
+            compression_format: persistence.preferred_format.unwrap_or_else(|| "tar.zst".to_string()),
             is_busy: false,
             toasts: Toasts::default(),
             cancel_flag: None,
             logs: Vec::new(),
-            show_log_panel: false,
+            show_log_panel: persistence.show_log_panel,
             log_receiver: Some(log_receiver),
             current_speed_bps: 0.0,
             eta_seconds: None,
@@ -75,10 +85,11 @@ impl FluxApp {
             log_level_filter: None,
             error_details: None,
             show_error_modal: false,
-            theme: crate::theme::FluxTheme::default(),
+            theme,
             sync_source_dir: None,
             sync_target_archive: None,
             sync_manifest_path: None,
+            show_about_dialog: false,
         }
     }
 }

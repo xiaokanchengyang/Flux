@@ -41,7 +41,7 @@ impl FluxApp {
             ui.label(egui::RichText::new("Modern, fast, and intelligent file compression").size(16.0).color(self.theme.colors.text_weak));
             ui.add_space(40.0);
             
-            // Large drop zone with modern styling
+            // Large drop zone with modern styling and animations
             let drop_zone_size = egui::vec2(ui.available_width() * 0.8, 220.0);
             let (rect, response) = ui.allocate_exact_size(drop_zone_size, egui::Sense::click_and_drag());
             
@@ -49,30 +49,35 @@ impl FluxApp {
             let painter = ui.painter();
             let is_hovered = response.hovered();
             
-            // Background with hover effect
-            let bg_color = if is_hovered {
-                self.theme.colors.primary.linear_multiply(0.1)
-            } else {
-                self.theme.colors.panel_bg
-            };
+            // Animated background with hover effect
+            ui.ctx().animate_bool_with_time(response.id, is_hovered, 0.2);
+            let hover_factor = ui.ctx().animate_bool(response.id, is_hovered);
+            
+            // Background with smooth hover effect
+            let bg_color = self.theme.colors.panel_bg.lerp_to_gamma(
+                self.theme.colors.primary.linear_multiply(0.1),
+                hover_factor
+            );
             painter.rect_filled(rect, self.theme.rounding * 2.0, bg_color);
             
-            // Border with dashed pattern effect
-            let border_color = if is_hovered {
-                self.theme.colors.primary
-            } else {
-                self.theme.colors.text_weak.linear_multiply(0.5)
-            };
-            painter.rect_stroke(rect, self.theme.rounding * 2.0, egui::Stroke::new(2.0, border_color));
+            // Border with animated effect
+            let border_color = self.theme.colors.text_weak.linear_multiply(0.5).lerp_to_gamma(
+                self.theme.colors.primary,
+                hover_factor
+            );
+            let border_width = 2.0 + hover_factor;
+            painter.rect_stroke(rect, self.theme.rounding * 2.0, egui::Stroke::new(border_width, border_color));
             
-            // Centered icon and text
+            // Centered icon and text with animation
             let center = rect.center();
+            let icon_offset = 5.0 * hover_factor * (ui.ctx().frame_nr() as f32 * 0.1).sin();
+            
             painter.text(
-                center - egui::vec2(0.0, 20.0),
+                center - egui::vec2(0.0, 20.0 + icon_offset),
                 egui::Align2::CENTER_CENTER,
                 "⬇",
-                egui::FontId::proportional(48.0),
-                self.theme.colors.primary.linear_multiply(if is_hovered { 1.0 } else { 0.7 }),
+                egui::FontId::proportional(48.0 + 4.0 * hover_factor),
+                self.theme.colors.primary.linear_multiply(0.7 + 0.3 * hover_factor),
             );
             
             painter.text(
@@ -173,6 +178,28 @@ impl FluxApp {
                         });
                     });
                 });
+                
+            ui.add_space(30.0);
+            
+            // Quick tips section
+            ui.separator();
+            ui.add_space(10.0);
+            
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("💡").size(16.0));
+                ui.label(egui::RichText::new("Quick Tips:").size(14.0).strong());
+            });
+            
+            ui.add_space(5.0);
+            
+            // Tips in a subtle style
+            let tip_style = |text: &str| egui::RichText::new(text).size(12.0).color(self.theme.colors.text_weak);
+            ui.indent("tips", |ui| {
+                ui.label(tip_style("• Drag multiple files/folders to create a combined archive"));
+                ui.label(tip_style("• Drop an archive file to extract it automatically"));
+                ui.label(tip_style("• Use Incremental Sync for efficient backups"));
+                ui.label(tip_style("• Check the logs panel for detailed operation info"));
+            });
         });
     }
     
@@ -336,6 +363,44 @@ impl eframe::App for FluxApp {
         
         // Process incoming messages
         self.process_messages();
+        
+        // Top menu bar
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("New Task").clicked() {
+                        self.reset_to_welcome();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Exit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                
+                ui.menu_button("View", |ui| {
+                    if ui.checkbox(&mut self.show_log_panel, "Show Logs").clicked() {
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Toggle Theme").clicked() {
+                        self.theme = if self.theme.is_dark_mode() {
+                            crate::theme::FluxTheme::light()
+                        } else {
+                            crate::theme::FluxTheme::dark()
+                        };
+                        ui.close_menu();
+                    }
+                });
+                
+                ui.menu_button("Help", |ui| {
+                    if ui.button("About Flux").clicked() {
+                        self.show_about_dialog = true;
+                        ui.close_menu();
+                    }
+                });
+            });
+        });
         
         // Main UI
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -784,9 +849,77 @@ impl eframe::App for FluxApp {
             }
         }
         
+        // About dialog
+        if self.show_about_dialog {
+            let mut close_dialog = false;
+            
+            egui::Window::new("About Flux")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        // App icon
+                        ui.add_space(10.0);
+                        ui.heading("🗜️ Flux");
+                        ui.add_space(5.0);
+                        
+                        // Version
+                        ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                        ui.add_space(10.0);
+                        
+                        // Description
+                        ui.label("A fast, modern file archiver with GUI");
+                        ui.add_space(20.0);
+                        
+                        // Features
+                        ui.label("Features:");
+                        ui.indent("features", |ui| {
+                            ui.label("• Multiple archive formats (ZIP, TAR, 7Z)");
+                            ui.label("• Smart compression selection");
+                            ui.label("• Incremental backups");
+                            ui.label("• Secure extraction");
+                            ui.label("• Cross-platform support");
+                        });
+                        
+                        ui.add_space(20.0);
+                        
+                        // Links
+                        ui.horizontal(|ui| {
+                            ui.hyperlink_to(
+                                "GitHub",
+                                "https://github.com/your-username/flux"
+                            );
+                            ui.label("|");
+                            ui.hyperlink_to(
+                                "Documentation",
+                                "https://github.com/your-username/flux/wiki"
+                            );
+                        });
+                        
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        // Close button
+                        if ui.button("Close").clicked() {
+                            close_dialog = true;
+                        }
+                    });
+                });
+            
+            if close_dialog {
+                self.show_about_dialog = false;
+            }
+        }
+        
         // Request repaint if busy
         if self.is_busy {
             ctx.request_repaint();
         }
+    }
+    
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.save_persistence(storage);
     }
 }

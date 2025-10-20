@@ -77,22 +77,35 @@ pub fn draw_packing_view(
 
     ui.add_space(10.0);
 
-    // Output path selection
+    // Output path selection with visual indicator
     ui.horizontal(|ui| {
         ui.label("Output path:");
         
         // Display current output path or placeholder text
+        let has_output = output_path.is_some();
         let output_text = output_path.as_ref()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "No output path selected".to_string());
+            .unwrap_or_else(|| "⚠️ No output path selected".to_string());
         
-        ui.label(&output_text);
+        if has_output {
+            ui.label(&output_text);
+        } else {
+            ui.colored_label(egui::Color32::from_rgb(255, 152, 0), &output_text);
+        }
         
         // Browse button to select output location
         if ui.add_enabled(!is_busy, egui::Button::new("Browse...")).clicked() {
             action = Some(PackingAction::SelectOutput);
         }
     });
+    
+    // Show helpful tip if output not selected
+    if output_path.is_none() && !is_busy {
+        ui.add_space(5.0);
+        ui.indent("output_tip", |ui| {
+            ui.label(egui::RichText::new("💡 Select where to save your archive").size(12.0).color(ui.style().visuals.weak_text_color()));
+        });
+    }
 
     ui.add_space(20.0);
 

@@ -20,6 +20,7 @@ flux-lib = { path = "../flux-lib" }  # Using flux-lib as the core library
 eframe = { workspace = true }
 egui = { workspace = true }
 egui-notify = { workspace = true }
+egui-phosphor = { workspace = true }
 crossbeam-channel = { workspace = true }
 rfd = { workspace = true }
 tempfile = { workspace = true }

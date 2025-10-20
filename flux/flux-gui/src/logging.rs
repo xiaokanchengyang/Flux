@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 /// A tracing layer that sends log messages to the GUI
 pub struct GuiLogLayer {
-    sender: Arc<Sender<String>>,
+    sender: Arc<Sender<(Level, String)>>,
 }
 
 impl GuiLogLayer {
-    pub fn new(sender: Sender<String>) -> Self {
+    pub fn new(sender: Sender<(Level, String)>) -> Self {
         Self {
             sender: Arc::new(sender),
         }
@@ -56,7 +56,7 @@ where
         event.record(&mut visitor);
         
         // Send to GUI (ignore errors if channel is closed)
-        let _ = self.sender.send(message);
+        let _ = self.sender.send((*level, message));
     }
 }
 
@@ -82,7 +82,7 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
 }
 
 /// Initialize tracing with both console and GUI output
-pub fn init_tracing(gui_sender: Option<Sender<String>>) {
+pub fn init_tracing(gui_sender: Option<Sender<(Level, String)>>) {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
     
     let env_filter = EnvFilter::from_default_env()

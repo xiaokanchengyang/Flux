@@ -10,6 +10,7 @@ mod views;
 mod app;
 mod logging;
 mod progress_tracker;
+mod theme;
 
 use task::{ToUi, ProgressUpdate, TaskResult};
 use app::FluxApp;
@@ -481,6 +482,129 @@ pub fn handle_extract_task(
     info!(files = total_count, "Extraction completed");
     let _ = ui_sender.send(ToUi::Log(format!("Extraction completed: {} files extracted", total_count)));
     let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
+}
+
+/// Handle sync/incremental backup task in background thread
+#[instrument(skip(ui_sender, cancel_flag, options))]
+pub fn handle_sync_task(
+    source_dir: PathBuf,
+    target_archive: PathBuf,
+    old_manifest: Option<PathBuf>,
+    options: flux_lib::archive::PackOptions,
+    _cancel_flag: Arc<AtomicBool>,
+    ui_sender: &Sender<ToUi>,
+) {
+    info!(
+        source = %source_dir.display(),
+        target = %target_archive.display(),
+        incremental = old_manifest.is_some(),
+        "Starting sync task"
+    );
+    
+    let task_type = if old_manifest.is_some() { "incremental backup" } else { "full backup" };
+    let _ = ui_sender.send(ToUi::Log(format!("Starting {} from {} to {}", 
+        task_type, source_dir.display(), target_archive.display())));
+    
+    // Check if we have an old manifest for incremental backup
+    if let Some(old_manifest_path) = old_manifest {
+        // Incremental backup
+        match flux_lib::archive::incremental::pack_incremental(
+            &source_dir,
+            &target_archive,
+            &old_manifest_path,
+            options,
+        ) {
+            Ok((_new_manifest_path, diff)) => {
+                info!(
+                    added = diff.added.len(),
+                    modified = diff.modified.len(),
+                    deleted = diff.deleted.len(),
+                    "Incremental backup completed"
+                );
+                
+                let _ = ui_sender.send(ToUi::Log(format!(
+                    "Incremental backup completed: {} added, {} modified, {} deleted",
+                    diff.added.len(), diff.modified.len(), diff.deleted.len()
+                )));
+                
+                // Send final progress
+                let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+                    processed_bytes: 100,
+                    total_bytes: 100,
+                    current_file: format!("Backup complete - {} changes", diff.change_count()),
+                    speed_bps: 0.0,
+                    eta_seconds: None,
+                }));
+                
+                let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
+            }
+            Err(e) => {
+                error!(error = %e, "Incremental backup failed");
+                let _ = ui_sender.send(ToUi::Log(format!("Incremental backup failed: {}", e)));
+                let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+            }
+        }
+    } else {
+        // Full backup - first create the manifest
+        info!("Creating initial manifest for full backup");
+        let _ = ui_sender.send(ToUi::Log("Creating manifest for source directory...".to_string()));
+        
+        match flux_lib::manifest::Manifest::from_directory(&source_dir) {
+            Ok(manifest) => {
+                let file_count = manifest.file_count;
+                let total_size = manifest.total_size;
+                
+                let _ = ui_sender.send(ToUi::Log(format!(
+                    "Manifest created: {} files, {:.2} MB total",
+                    file_count,
+                    total_size as f64 / (1024.0 * 1024.0)
+                )));
+                
+                // Create the full backup using regular pack
+                let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+                    processed_bytes: 0,
+                    total_bytes: total_size,
+                    current_file: "Creating full backup...".to_string(),
+                    speed_bps: 0.0,
+                    eta_seconds: None,
+                }));
+                
+                match flux_lib::archive::pack_with_strategy(&source_dir, &target_archive, None, options) {
+                    Ok(_) => {
+                        // Save the manifest
+                        let manifest_path = target_archive.with_extension("manifest.json");
+                        if let Err(e) = manifest.save(&manifest_path) {
+                            warn!(error = %e, "Failed to save manifest");
+                            let _ = ui_sender.send(ToUi::Log(format!("Warning: Failed to save manifest: {}", e)));
+                        } else {
+                            info!("Manifest saved to {:?}", manifest_path);
+                            let _ = ui_sender.send(ToUi::Log(format!("Manifest saved to {}", manifest_path.display())));
+                        }
+                        
+                        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+                            processed_bytes: total_size,
+                            total_bytes: total_size,
+                            current_file: "Full backup complete".to_string(),
+                            speed_bps: 0.0,
+                            eta_seconds: None,
+                        }));
+                        
+                        let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Full backup failed");
+                        let _ = ui_sender.send(ToUi::Log(format!("Full backup failed: {}", e)));
+                        let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to create manifest");
+                let _ = ui_sender.send(ToUi::Log(format!("Failed to create manifest: {}", e)));
+                let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
+            }
+        }
+    }
 }
 
 fn main() -> Result<(), eframe::Error> {

@@ -174,6 +174,88 @@ impl FluxApp {
                 }
             }
             AppView::Welcome => {}
+            AppView::Syncing => {
+                // Should use start_sync_task instead
+                warn!("start_task called in Syncing view, use start_sync_task instead");
+            }
+        }
+    }
+    
+    /// Start the sync/incremental backup task
+    pub(super) fn start_sync_task(&mut self) {
+        if let (Some(source_dir), Some(target_archive)) = (&self.sync_source_dir, &self.sync_target_archive) {
+            // Validate source directory exists
+            if !source_dir.exists() {
+                warn!("Source directory does not exist: {:?}", source_dir);
+                self.toasts.error("Source directory does not exist");
+                return;
+            }
+            
+            // Validate output directory exists
+            if let Some(parent) = target_archive.parent() {
+                if !parent.exists() {
+                    warn!("Target directory does not exist: {:?}", parent);
+                    self.toasts.error("Target directory does not exist");
+                    return;
+                }
+            }
+            
+            // Determine compression algorithm from file extension
+            let filename = target_archive.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            
+            let algorithm = if filename.ends_with(".tar.gz") {
+                Some("gz".to_string())
+            } else if filename.ends_with(".tar.zst") {
+                Some("zst".to_string())
+            } else if filename.ends_with(".tar.xz") {
+                Some("xz".to_string())
+            } else {
+                None
+            };
+            
+            let options = flux_lib::archive::PackOptions {
+                smart: false,
+                algorithm,
+                level: Some(6), // Default compression level
+                threads: None,
+                force_compress: false,
+                follow_symlinks: false,
+            };
+            
+            // Create cancel flag
+            let cancel_flag = Arc::new(AtomicBool::new(false));
+            self.cancel_flag = Some(cancel_flag.clone());
+            
+            let command = TaskCommand::Sync {
+                source_dir: source_dir.clone(),
+                target_archive: target_archive.clone(),
+                old_manifest: self.sync_manifest_path.clone(),
+                options,
+                cancel_flag,
+            };
+            
+            if self.task_sender.send(command).is_ok() {
+                self.is_busy = true;
+                self.current_progress = 0.0;
+                
+                let task_type = if self.sync_manifest_path.is_some() {
+                    "incremental backup"
+                } else {
+                    "full backup"
+                };
+                
+                self.status_text = format!("Starting {}...", task_type);
+                info!("Starting sync operation: {}", task_type);
+                self.toasts.info(format!("Starting {}...", task_type));
+            } else {
+                warn!("Failed to send sync command to background thread");
+                self.toasts.error("Failed to start task: background thread not responding");
+            }
+        } else {
+            warn!("Missing source directory or target archive");
+            self.toasts.error("Please select source directory and target archive first");
         }
     }
 }

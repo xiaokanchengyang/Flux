@@ -6,6 +6,7 @@ use egui_notify::Toasts;
 
 use crate::task::TaskCommand;
 use crate::task::ToUi;
+use crate::theme::FluxTheme;
 
 /// Application view states
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,6 +17,8 @@ pub enum AppView {
     Packing,
     /// Extracting archive view
     Extracting,
+    /// Syncing/incremental backup view
+    Syncing,
 }
 
 /// Main application structure
@@ -50,14 +53,30 @@ pub struct FluxApp {
     pub(super) toasts: Toasts,
     /// Cancel flag for current task
     pub(super) cancel_flag: Option<Arc<AtomicBool>>,
-    /// Log messages
-    pub(super) logs: Vec<String>,
+    /// Log messages with level
+    pub(super) logs: Vec<(tracing::Level, String)>,
     /// Show log panel
     pub(super) show_log_panel: bool,
     /// Receiver for log messages from tracing
-    pub(super) log_receiver: Option<Receiver<String>>,
+    pub(super) log_receiver: Option<Receiver<(tracing::Level, String)>>,
     /// Current processing speed in bytes per second
     pub(super) current_speed_bps: f64,
     /// Estimated time remaining in seconds
     pub(super) eta_seconds: Option<f64>,
+    /// Log search filter
+    pub(super) log_filter: String,
+    /// Selected log level filter
+    pub(super) log_level_filter: Option<tracing::Level>,
+    /// Current error details for modal dialog
+    pub(super) error_details: Option<(String, String)>, // (summary, details)
+    /// Show error modal
+    pub(super) show_error_modal: bool,
+    /// Application theme
+    pub(super) theme: FluxTheme,
+    /// Source directory for sync
+    pub(super) sync_source_dir: Option<PathBuf>,
+    /// Target archive for sync
+    pub(super) sync_target_archive: Option<PathBuf>,
+    /// Existing manifest path (if found)
+    pub(super) sync_manifest_path: Option<PathBuf>,
 }

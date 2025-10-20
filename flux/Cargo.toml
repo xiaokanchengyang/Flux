@@ -43,6 +43,7 @@ sevenz-rust = "0.6"
 dialoguer = "0.11"
 egui = "0.28"
 eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow"] }
+egui_extras = { version = "0.28", features = ["syntect"] }
 crossbeam-channel = "0.5"
 rfd = "0.14"
 blake3 = "1.5"

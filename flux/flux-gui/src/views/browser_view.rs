@@ -113,6 +113,8 @@ pub struct BrowserState {
     pub file_count: usize,
     /// Number of directories
     pub dir_count: usize,
+    /// Use table view instead of tree view
+    pub use_table_view: bool,
 }
 
 impl BrowserState {
@@ -144,6 +146,7 @@ impl BrowserState {
             total_size,
             file_count,
             dir_count,
+            use_table_view: false,
         }
     }
     
@@ -278,6 +281,16 @@ pub fn draw_browser_view(
         
         ui.checkbox(&mut state.show_hidden, "Show hidden files");
         
+        ui.separator();
+        
+        // View mode toggle
+        if ui.selectable_label(!state.use_table_view, "🌳 Tree").clicked() {
+            state.use_table_view = false;
+        }
+        if ui.selectable_label(state.use_table_view, "📊 Table").clicked() {
+            state.use_table_view = true;
+        }
+        
         if state.selected.len() > 0 {
             ui.separator();
             if ui.button("Clear Selection").clicked() {
@@ -293,32 +306,38 @@ pub fn draw_browser_view(
         let available_width = ui.available_width();
         let tree_width = available_width - state.info_panel_width - 8.0;
         
-        // File tree
+        // File tree or table view
         ui.allocate_ui(vec2(tree_width, ui.available_height()), |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                // Temporarily extract fields to avoid mutable borrow issues
-                let selected = &state.selected;
-                let highlighted = &state.highlighted;
-                let search_filter = &state.search_filter;
-                let show_hidden = state.show_hidden;
-                
-                let (new_highlighted, selection_changes) = draw_tree_node(
-                    ui, &mut state.tree, selected, highlighted, search_filter, show_hidden, theme, 0
-                );
-                
-                // Apply changes after drawing
-                if let Some(path) = new_highlighted {
-                    state.highlighted = Some(path);
-                }
-                
-                for (path, selected) in selection_changes {
-                    if selected {
-                        state.selected.insert(path);
-                    } else {
-                        state.selected.remove(&path);
+            if state.use_table_view {
+                // Use table view for better performance with large archives
+                super::browser_table_view::draw_table_view(ui, state, theme);
+            } else {
+                // Traditional tree view
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // Temporarily extract fields to avoid mutable borrow issues
+                    let selected = &state.selected;
+                    let highlighted = &state.highlighted;
+                    let search_filter = &state.search_filter;
+                    let show_hidden = state.show_hidden;
+                    
+                    let (new_highlighted, selection_changes) = draw_tree_node(
+                        ui, &mut state.tree, selected, highlighted, search_filter, show_hidden, theme, 0
+                    );
+                    
+                    // Apply changes after drawing
+                    if let Some(path) = new_highlighted {
+                        state.highlighted = Some(path);
                     }
-                }
-            });
+                    
+                    for (path, selected) in selection_changes {
+                        if selected {
+                            state.selected.insert(path);
+                        } else {
+                            state.selected.remove(&path);
+                        }
+                    }
+                });
+            }
         });
         
         ui.separator();
@@ -591,7 +610,7 @@ fn find_entry_by_path<'a>(node: &'a TreeNode, path: &Path) -> Option<&'a Archive
 }
 
 /// Get icon for file type
-fn get_file_icon(path: &Path) -> &'static str {
+pub fn get_file_icon(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("zip") | Some("tar") | Some("gz") | Some("7z") => regular::ARCHIVE,
         Some("txt") | Some("md") | Some("log") => regular::FILE_TEXT,
@@ -631,7 +650,7 @@ fn get_file_type(path: &Path) -> String {
 }
 
 /// Format file size for display
-fn format_size(bytes: u64) -> String {
+pub fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     let mut size = bytes as f64;
     let mut unit_index = 0;

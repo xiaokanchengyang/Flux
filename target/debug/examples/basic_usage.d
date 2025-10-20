@@ -1,0 +1,1 @@
+/workspace/target/debug/examples/basic_usage: /workspace/flux/flux-cloud/examples/basic_usage.rs /workspace/flux/flux-cloud/src/error.rs /workspace/flux/flux-cloud/src/lib.rs /workspace/flux/flux-cloud/src/reader.rs /workspace/flux/flux-cloud/src/store.rs /workspace/flux/flux-cloud/src/writer.rs

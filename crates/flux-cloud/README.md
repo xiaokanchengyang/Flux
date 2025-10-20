@@ -1,6 +1,8 @@
 # flux-cloud
 
-Cloud storage adaptation layer for Flux. This crate provides synchronous `Read`, `Write`, and `Seek` interfaces for cloud storage objects, allowing `flux-core` to work seamlessly with cloud storage without dealing with async complexity.
+Cloud storage adaptation layer for Flux archive tool.
+
+This crate provides synchronous `Read`, `Write`, and `Seek` implementations for cloud storage objects (S3, GCS, Azure Blob), allowing flux-core to work with cloud storage transparently.
 
 ## Features
 
@@ -21,14 +23,14 @@ use std::io::{Read, Write};
 let (store, path) = parse_cloud_url("s3://my-bucket/archive.tar.gz")?;
 
 // Write to cloud storage
-let mut writer = CloudWriter::new_with_defaults(store.clone(), path.clone());
+let mut writer = CloudWriter::from_store(store.clone(), path.clone())?;
 writer.write_all(b"Hello, cloud!")?;
 writer.finalize()?;
 
 // Read from cloud storage
-let mut reader = CloudReader::new_with_defaults(store, path).await?;
-let mut content = String::new();
-reader.read_to_string(&mut content)?;
+let mut reader = CloudReader::from_store(store, path)?;
+let mut content = Vec::new();
+reader.read_to_end(&mut content)?;
 ```
 
 ## Configuration
@@ -43,6 +45,10 @@ let config = CloudConfig {
     use_multipart_upload: true,            // Enable multipart
     multipart_threshold: 64 * 1024 * 1024, // 64MB threshold
 };
+
+// Use with custom config
+let mut writer = CloudWriter::with_config("s3://bucket/file", config.clone())?;
+let mut reader = CloudReader::with_config("s3://bucket/file", config)?;
 ```
 
 ## Authentication
@@ -50,8 +56,8 @@ let config = CloudConfig {
 Cloud credentials are read from environment variables:
 
 - **AWS S3**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-- **Google Cloud**: `GOOGLE_SERVICE_ACCOUNT` or Application Default Credentials
-- **Azure**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_ACCESS_KEY`
+- **Google Cloud Storage**: `GOOGLE_APPLICATION_CREDENTIALS` or Application Default Credentials
+- **Azure Blob Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_ACCESS_KEY`
 
 ## Architecture
 
@@ -59,10 +65,10 @@ The crate uses an internal Tokio runtime to bridge async `object_store` operatio
 
 ### Key Components
 
-- `CloudReader`: Provides buffered, seekable reads from cloud objects
+- `CloudReader`: Provides buffered, seekable reads from cloud objects with LRU caching
 - `CloudWriter`: Provides buffered writes with automatic multipart upload
-- `ReadBuffer`: Manages downloaded chunks with caching
-- `WriteBuffer`: Accumulates data before uploading
+- `CloudConfig`: Configuration for tuning performance
+- `CloudStore`: Manages the object store instance and Tokio runtime
 
 ## Performance Considerations
 

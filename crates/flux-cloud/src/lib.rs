@@ -1,33 +1,21 @@
-//! # flux-cloud
+//! Cloud storage adaptation layer for Flux
 //!
-//! Cloud storage adaptation layer for Flux. This crate provides synchronous `Read`, `Write`, and `Seek`
-//! interfaces for cloud storage objects, allowing `flux-core` to work with cloud storage seamlessly
-//! without dealing with async complexity.
-//!
-//! ## Architecture
-//!
-//! The main abstractions are:
-//! - `CloudReader`: Implements `std::io::Read` and `std::io::Seek` for reading from cloud objects
-//! - `CloudWriter`: Implements `std::io::Write` for writing to cloud objects
-//!
-//! These adapters use an internal Tokio runtime to bridge the async `object_store` API with
-//! synchronous std::io traits.
+//! This crate provides adapters that make cloud storage objects (S3, GCS, Azure Blob)
+//! appear as standard `Read`, `Write`, and `Seek` implementations that can be used
+//! directly with flux-core's synchronous APIs.
 
-#![warn(missing_docs)]
-#![warn(missing_debug_implementations)]
-
-mod error;
-mod reader;
-mod writer;
-mod runtime;
-mod buffer;
+pub mod error;
+pub mod reader;
+pub mod writer;
+pub mod store;
 
 pub use error::{CloudError, Result};
 pub use reader::CloudReader;
-pub use writer::CloudWriter;
+pub use writer::{CloudWriter, CloudWriterGuard};
+pub use store::{CloudStore, CloudPath};
 
-// Re-export commonly used types from object_store
-pub use object_store::{ObjectStore, ObjectMeta, path::Path as ObjectPath};
+// Re-export commonly used types
+pub use object_store::{ObjectStore, ObjectMeta};
 
 /// Configuration for cloud storage operations
 #[derive(Debug, Clone)]
@@ -56,15 +44,9 @@ impl Default for CloudConfig {
     }
 }
 
-/// Creates a cloud store from a URL string
-///
-/// Supports URLs like:
-/// - `s3://bucket/path/to/object`
-/// - `gs://bucket/path/to/object`
-/// - `az://container/path/to/object`
-pub fn parse_cloud_url(url: &str) -> Result<(Box<dyn ObjectStore>, ObjectPath)> {
-    use object_store::parse_url;
-    
-    let (store, path) = parse_url(&url.parse()?)?;
-    Ok((store.into(), path))
+/// Parse a cloud URL and create a store and path
+pub fn parse_cloud_url(url: &str) -> Result<(CloudStore, object_store::path::Path)> {
+    let cloud_path = CloudPath::parse(url)?;
+    let store = CloudStore::new(&cloud_path)?;
+    Ok((store, cloud_path.path))
 }

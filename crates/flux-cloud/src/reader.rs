@@ -1,66 +1,68 @@
-//! CloudReader - provides synchronous Read and Seek traits for cloud objects
-
-use crate::{buffer::ReadBuffer, error::Result, runtime::get_runtime, CloudConfig, CloudError};
+use std::io::{Read, Seek, SeekFrom};
+use std::sync::{Arc, Mutex};
+use std::num::NonZeroUsize;
 use bytes::Bytes;
 use lru::LruCache;
-use object_store::{ObjectStore, path::Path as ObjectPath};
-use std::io::{Read, Seek, SeekFrom};
-use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use object_store::path::Path;
 use tracing::{debug, trace};
+use crate::{CloudStore, CloudPath, CloudConfig, Result, CloudError};
 
-/// A reader that provides synchronous access to cloud storage objects
-#[derive(Debug)]
+/// A reader that adapts cloud storage objects to implement std::io::Read and Seek
 pub struct CloudReader {
-    /// The object store
-    store: Arc<dyn ObjectStore>,
-    /// Path to the object
-    path: ObjectPath,
-    /// Current read position
+    store: CloudStore,
+    path: Path,
+    /// Current position in the file
     position: u64,
     /// Total size of the object
     size: u64,
     /// Configuration
     config: CloudConfig,
     /// Cache of recently read chunks
-    cache: Arc<Mutex<LruCache<u64, ReadBuffer>>>,
+    cache: Arc<Mutex<LruCache<u64, Buffer>>>,
+}
+
+struct Buffer {
+    data: Bytes,
+    /// Start position of this buffer in the file
+    start: u64,
 }
 
 impl CloudReader {
-    /// Create a new CloudReader
-    ///
-    /// # Arguments
-    /// * `store` - The object store to read from
-    /// * `path` - Path to the object
-    /// * `config` - Configuration for the reader
-    pub async fn new(
-        store: Arc<dyn ObjectStore>,
-        path: ObjectPath,
-        config: CloudConfig,
-    ) -> Result<Self> {
-        // Get object metadata to determine size
-        let meta = store.head(&path).await?;
-        let size = meta.size as u64;
+    /// Create a new CloudReader for the given cloud URL
+    pub fn new(url: &str) -> Result<Self> {
+        Self::with_config(url, CloudConfig::default())
+    }
+    
+    /// Create a new CloudReader with custom configuration
+    pub fn with_config(url: &str, config: CloudConfig) -> Result<Self> {
+        let cloud_path = CloudPath::parse(url)?;
+        let store = CloudStore::new(&cloud_path)?;
+        Self::from_store_with_config(store, cloud_path.path, config)
+    }
+    
+    /// Create a CloudReader from an existing CloudStore and path
+    pub fn from_store(store: CloudStore, path: Path) -> Result<Self> {
+        Self::from_store_with_config(store, path, CloudConfig::default())
+    }
+    
+    /// Create a CloudReader from an existing CloudStore and path with custom config
+    pub fn from_store_with_config(store: CloudStore, path: Path, config: CloudConfig) -> Result<Self> {
+        // Get object metadata to know the size
+        let meta = store.runtime().block_on(async {
+            store.store().head(&path).await
+        }).map_err(CloudError::ObjectStore)?;
         
         let cache_size = NonZeroUsize::new(config.read_cache_size.max(1))
             .expect("cache size must be at least 1");
         
-        Ok(Self {
+        Ok(CloudReader {
             store,
             path,
             position: 0,
-            size,
+            size: meta.size as u64,
             config,
             cache: Arc::new(Mutex::new(LruCache::new(cache_size))),
         })
-    }
-    
-    /// Create a new CloudReader with default configuration
-    pub async fn new_with_defaults(
-        store: Arc<dyn ObjectStore>,
-        path: ObjectPath,
-    ) -> Result<Self> {
-        Self::new(store, path, CloudConfig::default()).await
     }
     
     /// Get the size of the object
@@ -73,35 +75,41 @@ impl CloudReader {
         self.position
     }
     
-    /// Download a chunk of data
-    async fn download_chunk(&self, start: u64, len: usize) -> Result<Bytes> {
+    /// Download a chunk of data from the cloud
+    fn fetch_chunk(&mut self, start: u64, len: usize) -> Result<Bytes> {
         let end = (start + len as u64).min(self.size);
-        let range = start..end;
         
         debug!(
-            "Downloading chunk from {} for object {}: {:?}",
-            self.store.to_string(),
+            "Downloading chunk from {}: {:?}",
             self.path,
-            range
+            start..end
         );
         
-        let result = self.store.get_range(&self.path, range.clone()).await?;
+        let data = self.store.runtime().block_on(async {
+            self.store.store()
+                .get_range(&self.path, start as usize..end as usize)
+                .await
+        }).map_err(CloudError::ObjectStore)?;
         
-        Ok(result)
+        Ok(data)
     }
     
     /// Get data from cache or download
-    fn get_chunk(&self, position: u64) -> Result<ReadBuffer> {
+    fn get_chunk(&mut self, position: u64) -> Result<Buffer> {
+        // Calculate chunk boundaries aligned to buffer size
+        let chunk_start = (position / self.config.read_buffer_size as u64) 
+            * self.config.read_buffer_size as u64;
+        
         // Check cache first
         {
             let mut cache = self.cache.lock().unwrap();
-            if let Some(buffer) = cache.get(&position) {
-                if buffer.contains(position) {
+            if let Some(buffer) = cache.get(&chunk_start) {
+                if position >= buffer.start && position < buffer.start + buffer.data.len() as u64 {
                     trace!("Cache hit for position {}", position);
-                    return Ok(ReadBuffer::new(
-                        buffer.data.clone(),
-                        buffer.range.clone(),
-                    ));
+                    return Ok(Buffer {
+                        data: buffer.data.clone(),
+                        start: buffer.start,
+                    });
                 }
             }
         }
@@ -109,20 +117,22 @@ impl CloudReader {
         // Cache miss - download chunk
         trace!("Cache miss for position {}", position);
         
-        let chunk_start = (position / self.config.read_buffer_size as u64) 
-            * self.config.read_buffer_size as u64;
-        let chunk_len = self.config.read_buffer_size;
+        let chunk_len = self.config.read_buffer_size
+            .min((self.size - chunk_start) as usize);
+        let data = self.fetch_chunk(chunk_start, chunk_len)?;
         
-        let runtime = get_runtime();
-        let data = runtime.block_on(self.download_chunk(chunk_start, chunk_len))?;
-        
-        let range = chunk_start..(chunk_start + data.len() as u64);
-        let buffer = ReadBuffer::new(data, range.clone());
+        let buffer = Buffer {
+            data: data.clone(),
+            start: chunk_start,
+        };
         
         // Update cache
         {
             let mut cache = self.cache.lock().unwrap();
-            cache.put(chunk_start, ReadBuffer::new(buffer.data.clone(), range));
+            cache.put(chunk_start, Buffer {
+                data,
+                start: chunk_start,
+            });
         }
         
         Ok(buffer)
@@ -136,16 +146,16 @@ impl Read for CloudReader {
         }
         
         let chunk = self.get_chunk(self.position)?;
-        let data = chunk.get_from(self.position)
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to get data from chunk",
-            ))?;
+        let buffer_offset = (self.position - chunk.start) as usize;
+        let available = chunk.data.len() - buffer_offset;
+        let to_read = buf.len().min(available).min((self.size - self.position) as usize);
         
-        let to_read = buf.len().min(data.len()).min((self.size - self.position) as usize);
-        buf[..to_read].copy_from_slice(&data[..to_read]);
+        if to_read > 0 {
+            let src = &chunk.data[buffer_offset..buffer_offset + to_read];
+            buf[..to_read].copy_from_slice(src);
+            self.position += to_read as u64;
+        }
         
-        self.position += to_read as u64;
         Ok(to_read)
     }
 }
@@ -153,25 +163,25 @@ impl Read for CloudReader {
 impl Seek for CloudReader {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         let new_pos = match pos {
-            SeekFrom::Start(n) => n,
-            SeekFrom::End(n) => {
-                if n > 0 {
+            SeekFrom::Start(offset) => offset,
+            SeekFrom::End(offset) => {
+                if offset > 0 {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "Cannot seek beyond end of file",
                     ));
                 }
-                (self.size as i64 + n) as u64
+                (self.size as i64 + offset) as u64
             }
-            SeekFrom::Current(n) => {
-                let new = self.position as i64 + n;
-                if new < 0 {
+            SeekFrom::Current(offset) => {
+                let new_pos = self.position as i64 + offset;
+                if new_pos < 0 {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
-                        "Cannot seek before beginning of file",
+                        "Cannot seek before start of file",
                     ));
                 }
-                new as u64
+                new_pos as u64
             }
         };
         
@@ -191,5 +201,26 @@ impl Seek for CloudReader {
 mod tests {
     use super::*;
     
-    // Tests will be added here
+    #[test]
+    fn test_cloud_path_parsing() {
+        let path = CloudPath::parse("s3://my-bucket/path/to/file.tar").unwrap();
+        assert_eq!(path.scheme, "s3");
+        assert_eq!(path.bucket, "my-bucket");
+        assert_eq!(path.path.as_ref(), "path/to/file.tar");
+        
+        let path = CloudPath::parse("gs://gcs-bucket/archive.tar.gz").unwrap();
+        assert_eq!(path.scheme, "gs");
+        assert_eq!(path.bucket, "gcs-bucket");
+        
+        let path = CloudPath::parse("az://container/blob.tar").unwrap();
+        assert_eq!(path.scheme, "az");
+        assert_eq!(path.bucket, "container");
+    }
+    
+    #[test]
+    fn test_invalid_paths() {
+        assert!(CloudPath::parse("http://not-cloud/file").is_err());
+        assert!(CloudPath::parse("/local/path/file").is_err());
+        assert!(CloudPath::parse("s3://").is_err());
+    }
 }

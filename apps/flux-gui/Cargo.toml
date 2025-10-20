@@ -16,7 +16,7 @@ name = "flux-gui"
 path = "src/main.rs"
 
 [dependencies]
-flux-core = { path = "../../flux/flux-core" }  # Using flux-core as the core library
+flux-core = { path = "../../crates/flux-core" }  # Using flux-core as the core library
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }

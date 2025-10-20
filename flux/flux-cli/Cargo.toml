@@ -6,7 +6,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "CLI for flux - a cross-platform file archiver and compressor"
+description = "Blazing-fast file archiver with intelligent compression - CLI interface"
+readme = "../README.md"
+keywords = ["compression", "archive", "tar", "zip", "cli"]
+categories = ["command-line-utilities", "compression", "filesystem"]
 
 [[bin]]
 name = "flux"

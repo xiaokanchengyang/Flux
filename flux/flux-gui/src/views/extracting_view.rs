@@ -18,14 +18,23 @@ pub fn draw_extracting_view(
     ui.separator();
     ui.add_space(10.0);
 
-    // Display the archive to extract
+    // Display the archive to extract prominently
     if let Some(archive) = archive_path {
-        ui.horizontal(|ui| {
-            ui.label("Archive:");
-            ui.strong(archive.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_else(|| archive.to_str().unwrap_or("Unknown")));
+        // Show archive name in a highlighted box
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label("📦");
+                ui.strong("Archive to extract:");
+            });
+            ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.label(archive.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_else(|| archive.to_str().unwrap_or("Unknown")));
+            });
         });
+        
+        ui.add_space(10.0);
 
         // Try to display file size
         if let Ok(metadata) = std::fs::metadata(archive) {
@@ -78,12 +87,17 @@ pub fn draw_extracting_view(
 
     // Output directory selection
     ui.horizontal(|ui| {
-        ui.label("Extract to:");
+        ui.label("Output directory:");
+        
+        // Display current output directory or placeholder text
         let output_text = output_dir.as_ref()
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "Click to select extraction directory...".to_string());
+            .unwrap_or_else(|| "No directory selected".to_string());
         
-        if ui.button(&output_text).clicked() && !is_busy {
+        ui.label(&output_text);
+        
+        // Browse button to select output directory
+        if ui.add_enabled(!is_busy, egui::Button::new("Browse...")).clicked() {
             action = Some(ExtractingAction::SelectOutputDir);
         }
     });
@@ -101,22 +115,25 @@ pub fn draw_extracting_view(
     ui.horizontal(|ui| {
         // Start extraction button
         let can_start = !is_busy && archive_path.is_some() && output_dir.is_some();
-        if ui.add_enabled(can_start, egui::Button::new("📦 Start Extraction")
-                .min_size(egui::vec2(140.0, 30.0)))
+        if ui.add_enabled(can_start, egui::Button::new("Start Extracting")
+                .min_size(egui::vec2(140.0, 35.0)))
             .clicked() {
             action = Some(ExtractingAction::StartExtracting);
         }
 
+        // Cancel button
+        if ui.add_enabled(!is_busy, egui::Button::new("Cancel")
+                .min_size(egui::vec2(80.0, 35.0)))
+            .clicked() {
+            action = Some(ExtractingAction::Clear);
+        }
+        
+        ui.add_space(20.0);
+        
         // Browse for different archive
         if ui.add_enabled(!is_busy, egui::Button::new("📁 Browse Archive"))
             .clicked() {
             action = Some(ExtractingAction::BrowseArchive);
-        }
-
-        // Clear button
-        if ui.add_enabled(!is_busy, egui::Button::new("🗑️ Clear"))
-            .clicked() {
-            action = Some(ExtractingAction::Clear);
         }
     });
 

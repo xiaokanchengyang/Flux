@@ -168,7 +168,7 @@ pub fn parse_size(size_str: &str) -> Result<u64> {
     let number: f64 = number_part.parse()
         .map_err(|_| Error::ConfigError(format!("Invalid number in size: {}", number_part)))?;
     
-    let multiplier = match unit_part.trim().to_lowercase().as_str() {
+    let multiplier: i64 = match unit_part.trim().to_lowercase().as_str() {
         "" | "b" => 1,
         "k" | "kb" => 1_000,
         "m" | "mb" => 1_000_000,

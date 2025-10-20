@@ -17,5 +17,5 @@ pub use error::{Error, Result};
 // Re-export commonly used types
 pub use archive::{
     extract, extract_with_options, inspect, pack, pack_with_strategy, ArchiveEntry, ExtractOptions,
-    PackOptions,
+    PackOptions, create_extractor,
 };

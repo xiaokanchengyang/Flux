@@ -42,6 +42,9 @@ pub enum Error {
     
     #[error("Partial failure: {count} operations failed")]
     PartialFailure { count: u32 },
+    
+    #[error("Not found: {0}")]
+    NotFound(String),
 }
 
 impl From<zip::result::ZipError> for Error {

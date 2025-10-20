@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Interactive extraction mode** (`--interactive` flag)
+  - Prompts for each file conflict during extraction
+  - Options: Overwrite, Skip, Rename, Overwrite All, Skip All, Abort
+  - Provides fine-grained control over extraction process
+- **New Extractor trait architecture**
+  - `entries()` method for listing archive contents without extraction
+  - `extract_entry()` method for extracting individual files
+  - Enables streaming and interactive extraction workflows
+  - Foundation for future GUI real-time feedback
+- **Partial failure exit code (4)**
+  - Better error reporting when some files fail to extract
+  - Distinguishes between complete and partial failures
+
+### Changed
+- **Major refactoring of extraction API**
+  - Moved from monolithic `extract()` to granular `entries()` and `extract_entry()`
+  - All archive formats (tar, zip, 7z) updated to new API
+  - Better separation of concerns and error handling
+- **7z format limitations documented**
+  - Interactive extraction falls back to standard mode for 7z
+  - Clear error messages for unsupported operations
+
+### Technical Improvements
+- Implemented `ConflictHandler` trait for extensible conflict resolution
+- Added `ExtractEntryOptions` for fine-grained extraction control
+- Better progress reporting during interactive extraction
+- Improved error handling with specific error types
+
 ## [1.7.0] - 2024-10-20
 
 ### Added

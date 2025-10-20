@@ -1,8 +1,9 @@
 //! Flux GUI Application structure and logic
 
 use eframe::egui;
+use egui_notify::Toasts;
 use crossbeam_channel::{Receiver, Sender};
-use std::{thread, path::PathBuf, time::{Duration, Instant}};
+use std::{thread, path::PathBuf, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::SystemTime};
 
 use crate::task::{TaskCommand, ToUi, TaskResult};
 use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction};
@@ -16,22 +17,6 @@ pub enum AppView {
     Packing,
     /// Extracting archive view
     Extracting,
-}
-
-/// Notification type
-#[derive(Debug, Clone)]
-pub enum NotificationType {
-    Success,
-    Error,
-    Info,
-}
-
-/// Notification to display to user
-#[derive(Debug, Clone)]
-pub struct Notification {
-    pub message: String,
-    pub notification_type: NotificationType,
-    pub created_at: Instant,
 }
 
 /// Main application structure
@@ -48,6 +33,12 @@ pub struct FluxApp {
     current_progress: f32,
     /// Status text to display
     status_text: String,
+    /// Current file being processed
+    current_file: String,
+    /// Bytes processed
+    processed_bytes: u64,
+    /// Total bytes to process
+    total_bytes: u64,
     /// Files to process
     input_files: Vec<PathBuf>,
     /// Output path
@@ -56,8 +47,14 @@ pub struct FluxApp {
     compression_format: String,
     /// Is task running
     is_busy: bool,
-    /// Active notifications
-    notifications: Vec<Notification>,
+    /// Toast notifications
+    toasts: Toasts,
+    /// Cancel flag for current task
+    cancel_flag: Option<Arc<AtomicBool>>,
+    /// Log messages
+    logs: Vec<String>,
+    /// Show log panel
+    show_log_panel: bool,
 }
 
 impl FluxApp {
@@ -74,11 +71,11 @@ impl FluxApp {
                 match task_receiver.recv() {
                     Ok(command) => {
                         match command {
-                            TaskCommand::Pack { inputs, output, options } => {
-                                crate::handle_pack_task(inputs, output, options, &ui_sender);
+                            TaskCommand::Pack { inputs, output, options, cancel_flag } => {
+                                crate::handle_pack_task(inputs, output, options, cancel_flag, &ui_sender);
                             }
-                            TaskCommand::Extract { archive, output_dir } => {
-                                crate::handle_extract_task(archive, output_dir, &ui_sender);
+                            TaskCommand::Extract { archive, output_dir, cancel_flag } => {
+                                crate::handle_extract_task(archive, output_dir, cancel_flag, &ui_sender);
                             }
                         }
                     }
@@ -97,11 +94,17 @@ impl FluxApp {
             _task_handle: Some(task_handle),
             current_progress: 0.0,
             status_text: "Ready".to_string(),
+            current_file: String::new(),
+            processed_bytes: 0,
+            total_bytes: 0,
             input_files: Vec::new(),
             output_path: None,
             compression_format: "tar.zst".to_string(),
             is_busy: false,
-            notifications: Vec::new(),
+            toasts: Toasts::default(),
+            cancel_flag: None,
+            logs: Vec::new(),
+            show_log_panel: false,
         }
     }
     
@@ -123,10 +126,7 @@ impl FluxApp {
                     // Switch to extracting view
                     self.view = AppView::Extracting;
                     self.input_files = files;
-                    self.add_notification(
-                        format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")),
-                        NotificationType::Info
-                    );
+                    self.toasts.info(format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")));
                     return;
                 }
             }
@@ -139,10 +139,7 @@ impl FluxApp {
                     // Switch to extracting view
                     self.view = AppView::Extracting;
                     self.input_files = files;
-                    self.add_notification(
-                        format!("Ready to extract: {}", name),
-                        NotificationType::Info
-                    );
+                    self.toasts.info(format!("Ready to extract: {}", name));
                     return;
                 }
             }
@@ -152,10 +149,7 @@ impl FluxApp {
         self.view = AppView::Packing;
         let count = files.len();
         self.input_files = files;
-        self.add_notification(
-            format!("Ready to pack {} file{}", count, if count == 1 { "" } else { "s" }),
-            NotificationType::Info
-        );
+        self.toasts.info(format!("Ready to pack {} file{}", count, if count == 1 { "" } else { "s" }));
     }
     
     /// Draw the welcome view
@@ -218,6 +212,24 @@ impl FluxApp {
         });
     }
     
+    /// Cancel the current task
+    fn cancel_task(&mut self) {
+        if let Some(flag) = &self.cancel_flag {
+            flag.store(true, Ordering::SeqCst);
+            self.toasts.info("Cancelling task...");
+        }
+    }
+    
+    /// Reset to welcome view
+    fn reset_to_welcome(&mut self) {
+        self.view = AppView::Welcome;
+        self.input_files.clear();
+        self.output_path = None;
+        self.current_progress = 0.0;
+        self.status_text = "Ready".to_string();
+        self.cancel_flag = None;
+    }
+    
     /// Start the task based on current view and inputs
     fn start_task(&mut self) {
         match self.view {
@@ -226,10 +238,7 @@ impl FluxApp {
                     // Validate output path
                     if let Some(parent) = output.parent() {
                         if !parent.exists() {
-                            self.add_notification(
-                                "Output directory does not exist".to_string(),
-                                NotificationType::Error
-                            );
+                            self.toasts.error("Output directory does not exist");
                             return;
                         }
                     }
@@ -252,129 +261,81 @@ impl FluxApp {
                         follow_symlinks: false,
                     };
                     
+                    // Create cancel flag
+                    let cancel_flag = Arc::new(AtomicBool::new(false));
+                    self.cancel_flag = Some(cancel_flag.clone());
+                    
                     let command = TaskCommand::Pack {
                         inputs: self.input_files.clone(),
                         output: output.clone(),
                         options,
+                        cancel_flag,
                     };
                     
                     if self.task_sender.send(command).is_ok() {
                         self.is_busy = true;
                         self.current_progress = 0.0;
                         self.status_text = "Starting pack operation...".to_string();
-                        self.add_notification(
-                            "Starting to create archive...".to_string(),
-                            NotificationType::Info
-                        );
+                        self.toasts.info("Starting to create archive...");
                     } else {
-                        self.add_notification(
-                            "Failed to start task: background thread not responding".to_string(),
-                            NotificationType::Error
-                        );
+                        self.toasts.error("Failed to start task: background thread not responding");
                     }
                 } else {
-                    self.add_notification(
-                        "Please select an output path first".to_string(),
-                        NotificationType::Error
-                    );
+                    self.toasts.error("Please select an output path first");
                 }
             }
             AppView::Extracting => {
                 if let (Some(archive), Some(output_dir)) = (self.input_files.first(), &self.output_path) {
                     // Validate archive exists
                     if !archive.exists() {
-                        self.add_notification(
-                            "Archive file not found".to_string(),
-                            NotificationType::Error
-                        );
+                        self.toasts.error("Archive file not found");
                         return;
                     }
                     
                     // Validate output directory exists
                     if !output_dir.exists() {
-                        self.add_notification(
-                            "Output directory does not exist".to_string(),
-                            NotificationType::Error
-                        );
+                        self.toasts.error("Output directory does not exist");
                         return;
                     }
+                    
+                    // Create cancel flag
+                    let cancel_flag = Arc::new(AtomicBool::new(false));
+                    self.cancel_flag = Some(cancel_flag.clone());
                     
                     let command = TaskCommand::Extract {
                         archive: archive.clone(),
                         output_dir: output_dir.clone(),
+                        cancel_flag,
                     };
                     
                     if self.task_sender.send(command).is_ok() {
                         self.is_busy = true;
                         self.current_progress = 0.0;
                         self.status_text = "Starting extraction...".to_string();
-                        self.add_notification(
-                            "Starting extraction...".to_string(),
-                            NotificationType::Info
-                        );
+                        self.toasts.info("Starting extraction...");
                     } else {
-                        self.add_notification(
-                            "Failed to start task: background thread not responding".to_string(),
-                            NotificationType::Error
-                        );
+                        self.toasts.error("Failed to start task: background thread not responding");
                     }
                 } else {
-                    self.add_notification(
-                        "Please select an archive and output directory first".to_string(),
-                        NotificationType::Error
-                    );
+                    self.toasts.error("Please select an archive and output directory first");
                 }
             }
             AppView::Welcome => {}
         }
     }
-    
-    /// Add a notification
-    fn add_notification(&mut self, message: String, notification_type: NotificationType) {
-        self.notifications.push(Notification {
-            message,
-            notification_type,
-            created_at: Instant::now(),
-        });
-    }
-    
-    /// Draw notifications
-    fn draw_notifications(&mut self, ctx: &egui::Context) {
-        // Remove old notifications (older than 5 seconds)
-        self.notifications.retain(|n| n.created_at.elapsed() < Duration::from_secs(5));
-        
-        if self.notifications.is_empty() {
-            return;
-        }
-        
-        // Position notifications at top-right corner
-        egui::Area::new(egui::Id::new("notifications"))
-            .fixed_pos(egui::pos2(ctx.screen_rect().width() - 320.0, 10.0))
-            .show(ctx, |ui| {
-                ui.set_width(300.0);
-                
-                for notification in &self.notifications {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            // Icon based on notification type
-                            let (icon, color) = match notification.notification_type {
-                                NotificationType::Success => ("✅", egui::Color32::from_rgb(0, 200, 0)),
-                                NotificationType::Error => ("❌", egui::Color32::from_rgb(200, 0, 0)),
-                                NotificationType::Info => ("ℹ️", egui::Color32::from_rgb(0, 100, 200)),
-                            };
-                            
-                            ui.colored_label(color, icon);
-                            ui.label(&notification.message);
-                        });
-                    });
-                    ui.add_space(5.0);
-                }
-            });
-    }
 }
 
 impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Update window title based on current state
+        let title = match (self.view, self.is_busy) {
+            (AppView::Packing, true) => "Flux - Packing...",
+            (AppView::Packing, false) => "Flux - Pack Files",
+            (AppView::Extracting, true) => "Flux - Extracting...",
+            (AppView::Extracting, false) => "Flux - Extract Archive",
+            (AppView::Welcome, _) => "Flux - File Archiver",
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_string()));
         // Check for dropped files
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
@@ -393,10 +354,24 @@ impl eframe::App for FluxApp {
             match msg {
                 ToUi::Progress(update) => {
                     self.current_progress = update.processed_bytes as f32 / update.total_bytes.max(1) as f32;
-                    self.status_text = format!("Processing: {}", update.current_file);
+                    self.current_file = update.current_file.clone();
+                    self.processed_bytes = update.processed_bytes;
+                    self.total_bytes = update.total_bytes;
+                    
+                    // Format status text with size information
+                    let processed_mb = update.processed_bytes as f64 / (1024.0 * 1024.0);
+                    let total_mb = update.total_bytes as f64 / (1024.0 * 1024.0);
+                    
+                    if update.total_bytes > 0 {
+                        let percent = (self.current_progress * 100.0) as u32;
+                        self.status_text = format!("{:.1} / {:.1} MB ({}%)", processed_mb, total_mb, percent);
+                    } else {
+                        self.status_text = "Processing...".to_string();
+                    }
                 }
                 ToUi::Finished(result) => {
                     self.is_busy = false;
+                    self.cancel_flag = None; // Clear cancel flag
                     match result {
                         TaskResult::Success => {
                             self.status_text = "Task completed successfully!".to_string();
@@ -408,18 +383,40 @@ impl eframe::App for FluxApp {
                                 AppView::Extracting => "Files extracted successfully!",
                                 _ => "Operation completed successfully!",
                             };
-                            self.add_notification(message.to_string(), NotificationType::Success);
+                            self.toasts.success(message);
                         }
                         TaskResult::Error(err) => {
                             self.status_text = format!("Error: {}", err);
                             self.current_progress = 0.0;
                             
                             // Add error notification
-                            self.add_notification(
-                                format!("Operation failed: {}", err),
-                                NotificationType::Error
-                            );
+                            self.toasts.error(format!("Operation failed: {}", err));
                         }
+                        TaskResult::Cancelled => {
+                            self.status_text = "Operation cancelled".to_string();
+                            self.current_progress = 0.0;
+                            
+                            // Add info notification
+                            self.toasts.info("Operation cancelled by user");
+                        }
+                    }
+                }
+                ToUi::Log(message) => {
+                    // Add timestamp to log message (simple format for now)
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default();
+                    let secs = now.as_secs() % 86400; // seconds in current day
+                    let hours = secs / 3600;
+                    let mins = (secs % 3600) / 60;
+                    let secs = secs % 60;
+                    let millis = now.subsec_millis();
+                    
+                    self.logs.push(format!("[{:02}:{:02}:{:02}.{:03}] {}", hours, mins, secs, millis, message));
+                    
+                    // Keep log size reasonable (max 1000 entries)
+                    if self.logs.len() > 1000 {
+                        self.logs.drain(0..100); // Remove oldest 100 entries
                     }
                 }
             }
@@ -431,8 +428,27 @@ impl eframe::App for FluxApp {
             if self.is_busy || self.current_progress > 0.0 {
                 ui.horizontal(|ui| {
                     ui.label(&self.status_text);
+                    
+                    // Show "New Task" button when task is complete
+                    if !self.is_busy && self.current_progress >= 1.0 {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("🆕 Start New Task").clicked() {
+                                self.reset_to_welcome();
+                            }
+                        });
+                    }
                 });
+                
+                // Show progress bar
                 ui.add(egui::ProgressBar::new(self.current_progress).show_percentage());
+                
+                // Show current file being processed
+                if !self.current_file.is_empty() && self.is_busy {
+                    ui.horizontal(|ui| {
+                        ui.weak("Processing:");
+                        ui.monospace(&self.current_file);
+                    });
+                }
                 ui.separator();
                 ui.add_space(10.0);
             }
@@ -494,6 +510,9 @@ impl eframe::App for FluxApp {
                                 self.current_progress = 0.0;
                                 self.status_text = "Ready".to_string();
                             }
+                            PackingAction::Cancel => {
+                                self.cancel_task();
+                            }
                         }
                     }
                 }
@@ -532,17 +551,57 @@ impl eframe::App for FluxApp {
                                 self.current_progress = 0.0;
                                 self.status_text = "Ready".to_string();
                             }
+                            ExtractingAction::Cancel => {
+                                self.cancel_task();
+                            }
                         }
                     }
                 }
             }
         });
         
-        // Draw notifications on top of everything
-        self.draw_notifications(ctx);
+        // Log panel toggle at bottom
+        egui::TopBottomPanel::bottom("log_panel_toggle").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.show_log_panel, "📋 Show Logs");
+                if self.show_log_panel {
+                    ui.separator();
+                    if ui.button("Clear Logs").clicked() {
+                        self.logs.clear();
+                    }
+                }
+            });
+        });
         
-        // Request repaint if busy or have active notifications
-        if self.is_busy || !self.notifications.is_empty() {
+        // Log panel
+        if self.show_log_panel {
+            egui::TopBottomPanel::bottom("log_panel")
+                .resizable(true)
+                .default_height(200.0)
+                .min_height(100.0)
+                .max_height(400.0)
+                .show(ctx, |ui| {
+                    ui.heading("Logs");
+                    ui.separator();
+                    
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                            
+                            for log in &self.logs {
+                                ui.monospace(log);
+                            }
+                        });
+                });
+        }
+        
+        // Show toast notifications
+        self.toasts.show(ctx);
+        
+        // Request repaint if busy
+        if self.is_busy {
             ctx.request_repaint();
         }
     }

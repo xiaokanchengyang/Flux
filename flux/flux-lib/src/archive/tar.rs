@@ -1005,7 +1005,7 @@ pub fn pack_multiple_files<P: AsRef<Path>, Q: AsRef<Path>>(
         if file_path.is_file() {
             pack_file(&mut builder, file_path, archive_path, follow_symlinks)?;
         } else if file_path.is_dir() {
-            pack_directory(&mut builder, file_path, archive_path, follow_symlinks)?;
+            pack_directory_with_options(&mut builder, file_path, follow_symlinks)?;
         }
     }
     

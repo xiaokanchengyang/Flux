@@ -50,4 +50,10 @@ impl From<zip::result::ZipError> for Error {
     }
 }
 
+impl From<walkdir::Error> for Error {
+    fn from(err: walkdir::Error) -> Self {
+        Error::Io(err.into())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;

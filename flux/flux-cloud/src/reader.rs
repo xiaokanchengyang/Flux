@@ -1,9 +1,11 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::{Arc, Mutex};
+use std::num::NonZeroUsize;
 use bytes::Bytes;
+use lru::LruCache;
 use object_store::path::Path;
-use crate::{CloudStore, CloudPath, Result, CloudError};
-
-const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8MB buffer
+use tracing::{debug, trace};
+use crate::{CloudStore, CloudPath, CloudConfig, Result, CloudError};
 
 /// A reader that adapts cloud storage objects to implement std::io::Read and Seek
 pub struct CloudReader {
@@ -13,8 +15,10 @@ pub struct CloudReader {
     position: u64,
     /// Total size of the object
     size: u64,
-    /// Buffer for cached data
-    buffer: Option<Buffer>,
+    /// Configuration
+    config: CloudConfig,
+    /// Cache of recently read chunks
+    cache: Arc<Mutex<LruCache<u64, Buffer>>>,
 }
 
 struct Buffer {
@@ -26,42 +30,60 @@ struct Buffer {
 impl CloudReader {
     /// Create a new CloudReader for the given cloud URL
     pub fn new(url: &str) -> Result<Self> {
+        Self::with_config(url, CloudConfig::default())
+    }
+    
+    /// Create a new CloudReader with custom configuration
+    pub fn with_config(url: &str, config: CloudConfig) -> Result<Self> {
         let cloud_path = CloudPath::parse(url)?;
         let store = CloudStore::new(&cloud_path)?;
-        
-        // Get object metadata to know the size
-        let meta = store.runtime().block_on(async {
-            store.store().head(&cloud_path.path).await
-        }).map_err(CloudError::ObjectStore)?;
-        
-        Ok(CloudReader {
-            store,
-            path: cloud_path.path,
-            position: 0,
-            size: meta.size as u64,
-            buffer: None,
-        })
+        Self::from_store_with_config(store, cloud_path.path, config)
     }
     
     /// Create a CloudReader from an existing CloudStore and path
     pub fn from_store(store: CloudStore, path: Path) -> Result<Self> {
+        Self::from_store_with_config(store, path, CloudConfig::default())
+    }
+    
+    /// Create a CloudReader from an existing CloudStore and path with custom config
+    pub fn from_store_with_config(store: CloudStore, path: Path, config: CloudConfig) -> Result<Self> {
         // Get object metadata to know the size
         let meta = store.runtime().block_on(async {
             store.store().head(&path).await
         }).map_err(CloudError::ObjectStore)?;
+        
+        let cache_size = NonZeroUsize::new(config.read_cache_size.max(1))
+            .expect("cache size must be at least 1");
         
         Ok(CloudReader {
             store,
             path,
             position: 0,
             size: meta.size as u64,
-            buffer: None,
+            config,
+            cache: Arc::new(Mutex::new(LruCache::new(cache_size))),
         })
+    }
+    
+    /// Get the size of the object
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+    
+    /// Get the current position
+    pub fn position(&self) -> u64 {
+        self.position
     }
     
     /// Download a chunk of data from the cloud
     fn fetch_chunk(&mut self, start: u64, len: usize) -> Result<Bytes> {
         let end = (start + len as u64).min(self.size);
+        
+        debug!(
+            "Downloading chunk from {}: {:?}",
+            self.path,
+            start..end
+        );
         
         let data = self.store.runtime().block_on(async {
             self.store.store()
@@ -72,31 +94,48 @@ impl CloudReader {
         Ok(data)
     }
     
-    /// Ensure we have buffered data at the current position
-    fn ensure_buffer(&mut self) -> Result<()> {
-        // Check if we already have data buffered at this position
-        if let Some(ref buffer) = self.buffer {
-            let buffer_end = buffer.start + buffer.data.len() as u64;
-            if self.position >= buffer.start && self.position < buffer_end {
-                return Ok(());
+    /// Get data from cache or download
+    fn get_chunk(&mut self, position: u64) -> Result<Buffer> {
+        // Calculate chunk boundaries aligned to buffer size
+        let chunk_start = (position / self.config.read_buffer_size as u64) 
+            * self.config.read_buffer_size as u64;
+        
+        // Check cache first
+        {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(buffer) = cache.get(&chunk_start) {
+                if position >= buffer.start && position < buffer.start + buffer.data.len() as u64 {
+                    trace!("Cache hit for position {}", position);
+                    return Ok(Buffer {
+                        data: buffer.data.clone(),
+                        start: buffer.start,
+                    });
+                }
             }
         }
         
-        // We need to fetch new data
-        if self.position >= self.size {
-            // Already at end of file
-            return Ok(());
+        // Cache miss - download chunk
+        trace!("Cache miss for position {}", position);
+        
+        let chunk_len = self.config.read_buffer_size
+            .min((self.size - chunk_start) as usize);
+        let data = self.fetch_chunk(chunk_start, chunk_len)?;
+        
+        let buffer = Buffer {
+            data: data.clone(),
+            start: chunk_start,
+        };
+        
+        // Update cache
+        {
+            let mut cache = self.cache.lock().unwrap();
+            cache.put(chunk_start, Buffer {
+                data,
+                start: chunk_start,
+            });
         }
         
-        let chunk_size = DEFAULT_BUFFER_SIZE.min((self.size - self.position) as usize);
-        let data = self.fetch_chunk(self.position, chunk_size)?;
-        
-        self.buffer = Some(Buffer {
-            data,
-            start: self.position,
-        });
-        
-        Ok(())
+        Ok(buffer)
     }
 }
 
@@ -106,22 +145,18 @@ impl Read for CloudReader {
             return Ok(0); // EOF
         }
         
-        self.ensure_buffer()?;
+        let chunk = self.get_chunk(self.position)?;
+        let buffer_offset = (self.position - chunk.start) as usize;
+        let available = chunk.data.len() - buffer_offset;
+        let to_read = buf.len().min(available).min((self.size - self.position) as usize);
         
-        if let Some(ref buffer) = self.buffer {
-            let buffer_offset = (self.position - buffer.start) as usize;
-            let available = buffer.data.len() - buffer_offset;
-            let to_read = buf.len().min(available);
-            
-            if to_read > 0 {
-                let src = &buffer.data[buffer_offset..buffer_offset + to_read];
-                buf[..to_read].copy_from_slice(src);
-                self.position += to_read as u64;
-                return Ok(to_read);
-            }
+        if to_read > 0 {
+            let src = &chunk.data[buffer_offset..buffer_offset + to_read];
+            buf[..to_read].copy_from_slice(src);
+            self.position += to_read as u64;
         }
         
-        Ok(0)
+        Ok(to_read)
     }
 }
 

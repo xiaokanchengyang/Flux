@@ -61,6 +61,11 @@ impl CloudStore {
         })
     }
     
+    /// Create a CloudStore from existing store and runtime (useful for testing)
+    pub fn from_store_and_runtime(store: Arc<DynObjectStore>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        CloudStore { store, runtime }
+    }
+    
     /// Get the object store instance
     pub fn store(&self) -> &Arc<DynObjectStore> {
         &self.store

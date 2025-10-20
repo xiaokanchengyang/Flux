@@ -1,105 +1,82 @@
 # flux-cloud
 
-Cloud storage adaptation layer for Flux archive tool. This crate provides transparent cloud storage support by implementing standard Rust I/O traits (`Read`, `Write`, `Seek`) for cloud objects.
+Cloud storage adaptation layer for Flux archive tool.
+
+This crate provides synchronous `Read`, `Write`, and `Seek` implementations for cloud storage objects (S3, GCS, Azure Blob), allowing flux-core to work with cloud storage transparently.
 
 ## Features
 
-- **Transparent Integration**: Cloud objects behave like local files through standard I/O traits
-- **Multi-Cloud Support**: Works with Amazon S3, Google Cloud Storage, and Azure Blob Storage
-- **Efficient Streaming**: Optimized buffering and multipart uploads for large files
-- **Synchronous API**: Seamlessly integrates with flux-core's synchronous architecture
-
-## Architecture
-
-```
-flux-core (sync) <-> flux-cloud (async adapter) <-> Cloud Providers
-```
-
-The key innovation is that `flux-cloud` internally manages a Tokio runtime to execute async operations, but exposes a synchronous API that flux-core can use without any modifications.
+- **Synchronous API**: Implements standard `std::io::{Read, Write, Seek}` traits
+- **Multi-cloud support**: Works with AWS S3, Google Cloud Storage, Azure Blob Storage
+- **Intelligent buffering**: Configurable read/write buffers for optimal performance
+- **Caching**: LRU cache for recently read chunks to minimize API calls
+- **Multipart uploads**: Automatic multipart upload for large files
+- **Zero-copy where possible**: Uses `bytes::Bytes` internally
 
 ## Usage
 
-### As a Library
-
 ```rust
-use flux_cloud::{CloudReader, CloudWriter};
-use std::io::{Read, Write, copy};
+use flux_cloud::{CloudReader, CloudWriter, parse_cloud_url};
+use std::io::{Read, Write};
 
-// Read from cloud storage
-let mut reader = CloudReader::new("s3://my-bucket/archive.tar.gz")?;
-let mut buffer = Vec::new();
-reader.read_to_end(&mut buffer)?;
+// Parse a cloud URL
+let (store, path) = parse_cloud_url("s3://my-bucket/archive.tar.gz")?;
 
 // Write to cloud storage
-let mut writer = CloudWriter::new("gs://my-bucket/backup.tar.zst")?;
-writer.write_all(&data)?;
-writer.flush()?;
+let mut writer = CloudWriter::from_store(store.clone(), path.clone())?;
+writer.write_all(b"Hello, cloud!")?;
+writer.finalize()?;
 
-// Copy between cloud providers
-let mut source = CloudReader::new("s3://source-bucket/file.tar")?;
-let mut dest = CloudWriter::new("az://dest-container/file.tar")?;
-copy(&mut source, &mut dest)?;
+// Read from cloud storage
+let mut reader = CloudReader::from_store(store, path)?;
+let mut content = Vec::new();
+reader.read_to_end(&mut content)?;
 ```
 
-### Environment Variables
+## Configuration
 
-#### Amazon S3
-```bash
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_REGION=us-east-1  # optional
+```rust
+use flux_cloud::CloudConfig;
+
+let config = CloudConfig {
+    read_buffer_size: 8 * 1024 * 1024,    // 8MB read chunks
+    write_buffer_size: 16 * 1024 * 1024,  // 16MB write buffer
+    read_cache_size: 4,                    // Cache 4 chunks
+    use_multipart_upload: true,            // Enable multipart
+    multipart_threshold: 64 * 1024 * 1024, // 64MB threshold
+};
+
+// Use with custom config
+let mut writer = CloudWriter::with_config("s3://bucket/file", config.clone())?;
+let mut reader = CloudReader::with_config("s3://bucket/file", config)?;
 ```
 
-#### Google Cloud Storage
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
-# OR
-export GOOGLE_SERVICE_ACCOUNT='{"type": "service_account", ...}'
-```
+## Authentication
 
-#### Azure Blob Storage
-```bash
-export AZURE_STORAGE_ACCOUNT_NAME=myaccount
-export AZURE_STORAGE_ACCOUNT_KEY=your_account_key
-# OR
-export AZURE_STORAGE_SAS_TOKEN=your_sas_token
-```
+Cloud credentials are read from environment variables:
 
-## Design Principles
+- **AWS S3**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
+- **Google Cloud Storage**: `GOOGLE_APPLICATION_CREDENTIALS` or Application Default Credentials
+- **Azure Blob Storage**: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_ACCESS_KEY`
 
-1. **Zero Changes to flux-core**: The core library remains pure, synchronous, and cloud-agnostic
-2. **Efficient Buffering**: Uses 8MB buffers by default to minimize round trips
-3. **Smart Uploads**: Automatically switches to multipart upload for large files (>16MB)
-4. **Error Handling**: Comprehensive error messages with context
+## Architecture
 
-## Performance Characteristics
+The crate uses an internal Tokio runtime to bridge async `object_store` operations with synchronous `std::io` traits. This design allows `flux-core` to remain purely synchronous while still leveraging high-performance async cloud APIs.
 
-- **Read Operations**: Fetches data in 8MB chunks, with read-ahead buffering
-- **Write Operations**: Buffers up to 8MB before uploading, automatic multipart for large files
-- **Seek Operations**: Optimized to avoid unnecessary downloads when seeking forward
+### Key Components
 
-## Integration with flux-cli
+- `CloudReader`: Provides buffered, seekable reads from cloud objects with LRU caching
+- `CloudWriter`: Provides buffered writes with automatic multipart upload
+- `CloudConfig`: Configuration for tuning performance
+- `CloudStore`: Manages the object store instance and Tokio runtime
 
-When flux-cli is built with the `cloud` feature, it automatically detects cloud URLs:
+## Performance Considerations
 
-```bash
-# Build with cloud support
-cargo build --features cloud
-
-# Use cloud URLs directly
-flux pack -i ./data -o s3://bucket/backup.tar.zst
-flux extract gs://bucket/archive.tar.gz -o ./output
-flux inspect az://container/data.tar
-```
-
-## Future Enhancements
-
-- [ ] Parallel multipart uploads for even faster large file handling
-- [ ] Resumable uploads/downloads
-- [ ] Cloud-to-cloud copying without local buffering
-- [ ] Credential caching and management
-- [ ] Progress callbacks for long operations
+1. **Chunk Size**: Larger read buffers reduce API calls but increase memory usage
+2. **Cache Size**: More cached chunks improve sequential read performance
+3. **Multipart Threshold**: Lower thresholds start streaming uploads sooner
+4. **Network Latency**: Consider your network conditions when tuning buffer sizes
 
 ## License
 
-Same as the parent Flux project - MIT OR Apache-2.0
+Licensed under either of Apache License 2.0 or MIT license at your option.

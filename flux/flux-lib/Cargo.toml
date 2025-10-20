@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+description = "Core library for flux - a cross-platform file archiver with intelligent compression"
+readme = "../README.md"
+keywords = ["compression", "archive", "tar", "zip", "zstd"]
+categories = ["compression", "filesystem", "encoding"]
 description = "Core library for flux - a cross-platform file archiver and compressor"
 
 [dependencies]

@@ -1,0 +1,97 @@
+# Example Flux Configuration File
+# 
+# Copy this file to your configuration directory:
+# - Linux/macOS: ~/.config/flux/config.toml
+# - Windows: %APPDATA%\flux\config.toml
+
+[strategy]
+# Default compression level (1-9)
+# Lower values = faster compression, larger files
+# Higher values = slower compression, smaller files
+default_level = 6
+
+# Minimum file size to compress (bytes)
+# Files smaller than this will be stored without compression
+min_file_size = 1024  # 1 KB
+
+# Number of threads for parallel operations
+# 0 = automatically detect based on CPU cores
+threads = 0
+
+# Force compression on already-compressed files
+# Default: false (recommended)
+force_compress = false
+
+# Compression rules - evaluated in order, first match wins
+# Each rule can specify:
+# - extensions: list of file extensions (without dots)
+# - mime_types: list of MIME types (if available)
+# - min_size: minimum file size in bytes
+# - max_size: maximum file size in bytes
+# - algorithm: compression algorithm to use
+# - level: compression level for this rule
+
+[[strategy.rules]]
+# Text files - use Zstandard for good balance
+extensions = [
+    # Documents
+    "txt", "md", "rst", "adoc",
+    # Data formats
+    "json", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf",
+    # Web files
+    "html", "htm", "css", "scss", "sass", "less",
+    "js", "ts", "jsx", "tsx", "vue", "svelte",
+    # Source code
+    "py", "pyw", "pyi", "rs", "go", "c", "cpp", "cxx", "cc", "h", "hpp", "hxx",
+    "java", "kt", "kts", "scala", "clj", "cljs", "rb", "php", "swift",
+    # Scripts
+    "sh", "bash", "zsh", "fish", "ps1", "psm1", "psd1", "bat", "cmd",
+    # Other text
+    "sql", "graphql", "proto", "log", "csv", "tsv"
+]
+algorithm = "zstd"
+level = 6
+
+[[strategy.rules]]
+# Already compressed files - store without recompression
+extensions = [
+    # Images
+    "jpg", "jpeg", "png", "gif", "webp", "ico", "bmp", "tiff", "tif",
+    # Audio
+    "mp3", "mp4", "m4a", "aac", "ogg", "flac", "wav", "wma",
+    # Video
+    "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
+    # Archives
+    "zip", "7z", "rar", "gz", "bz2", "xz", "zst", "lz4", "br",
+    # Binary formats
+    "pdf", "epub", "mobi", "azw", "azw3",
+    "exe", "dll", "so", "dylib", "deb", "rpm", "dmg", "pkg", "msi",
+    # Fonts
+    "woff", "woff2", "ttf", "otf", "eot"
+]
+algorithm = "store"
+
+[[strategy.rules]]
+# Large log files - use XZ for maximum compression
+extensions = ["log", "txt"]
+min_size = 104857600  # 100 MB
+algorithm = "xz"
+level = 6
+
+[[strategy.rules]]
+# Very large files - use parallel zstd
+min_size = 1073741824  # 1 GB
+algorithm = "zstd"
+level = 3  # Lower level for faster processing
+
+[[strategy.rules]]
+# Small text files - use Brotli for excellent compression
+extensions = ["html", "css", "js", "json", "xml"]
+max_size = 1048576  # 1 MB
+algorithm = "brotli"
+level = 6
+
+[[strategy.rules]]
+# Default rule - catches everything else
+algorithm = "zstd"
+level = 3

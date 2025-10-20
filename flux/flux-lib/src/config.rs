@@ -15,6 +15,9 @@ pub struct Config {
     pub archive: ArchiveConfig,
     /// Performance settings
     pub performance: PerformanceConfig,
+    /// Strategy settings
+    #[serde(default)]
+    pub strategy: StrategyConfig,
     /// Custom compression rules
     #[serde(default)]
     pub rules: Vec<CompressionRule>,
@@ -53,6 +56,27 @@ pub struct PerformanceConfig {
     pub memory_limit: u64,
     /// Buffer size in KB
     pub buffer_size: u32,
+}
+
+/// Strategy configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrategyConfig {
+    /// Large file threshold in bytes
+    pub large_file_threshold: Option<u64>,
+    /// Enable zstd long mode for very large files
+    pub enable_long_mode: bool,
+    /// Memory limit for compression (in MB)
+    pub memory_limit: Option<u32>,
+}
+
+impl Default for StrategyConfig {
+    fn default() -> Self {
+        Self {
+            large_file_threshold: None,
+            enable_long_mode: true,
+            memory_limit: None,
+        }
+    }
 }
 
 /// Custom compression rule
@@ -95,6 +119,7 @@ impl Default for Config {
                 memory_limit: 0, // Unlimited
                 buffer_size: 64, // 64KB
             },
+            strategy: StrategyConfig::default(),
             rules: vec![
                 // Example rule: Use brotli for HTML/CSS/JS files
                 CompressionRule {
@@ -116,7 +141,7 @@ impl Default for Config {
                     name: "tiny_files".to_string(),
                     patterns: vec!["*".to_string()],
                     min_size: None,
-                    max_size: Some(100), // Less than 100 bytes
+                    max_size: Some(10), // Less than 10 bytes
                     algorithm: "store".to_string(),
                     level: None,
                     threads: None,

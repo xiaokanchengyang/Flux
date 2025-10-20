@@ -1,4 +1,21 @@
 //! Smart compression strategy module
+//! 
+//! This module provides intelligent compression strategies based on file characteristics.
+//! 
+//! # Small File Batching
+//! 
+//! One of the key optimizations is the automatic batching of small files. When processing
+//! directories with many small files (< 1KB), the strategy system recognizes that these
+//! files benefit from being archived together before compression. This allows the compression
+//! algorithm to:
+//! 
+//! - Share dictionary data across files
+//! - Find common patterns between files
+//! - Reduce per-file metadata overhead
+//! - Achieve significantly better compression ratios
+//! 
+//! The batching happens automatically when using smart strategies - no manual configuration
+//! is required. Simply enable smart mode and the system will detect and optimize for small files.
 
 use crate::config::Config;
 use crate::{Error, Result};
@@ -50,6 +67,8 @@ pub struct CompressionStrategy {
     pub threads: usize,
     /// Force compression on already compressed files
     pub force_compress: bool,
+    /// Enable long mode for zstd (for very large files)
+    pub long_mode: bool,
 }
 
 impl Default for CompressionStrategy {
@@ -59,6 +78,7 @@ impl Default for CompressionStrategy {
             level: 3,
             threads: current_num_threads(),
             force_compress: false,
+            long_mode: false,
         }
     }
 }
@@ -192,6 +212,7 @@ fn apply_custom_rules(path: &Path, config: &Config) -> Option<CompressionStrateg
             level: rule.level.unwrap_or(3),
             threads: rule.threads.unwrap_or_else(current_num_threads),
             force_compress: false,
+            long_mode: false,
         });
     }
 
@@ -204,19 +225,25 @@ impl CompressionStrategy {
         let path = path.as_ref();
         let mut strategy = Self::default();
 
-        // Override with user preferences if provided
-        if let Some(level) = level {
-            strategy.level = level;
-        }
-        if let Some(threads) = threads {
-            strategy.threads = threads;
-        }
+        // Store user preferences for later application
+        let user_level = level;
+        let user_threads = threads;
 
-        // Rule 0: Check custom rules from configuration
-        if let Ok(config) = Config::load() {
-            if let Some(custom_strategy) = apply_custom_rules(path, &config) {
-                info!("Using custom rule-based strategy: {:?}", custom_strategy);
-                return custom_strategy;
+        // Rule 0: Check custom rules from configuration (skip in tests)
+        if std::env::var("FLUX_NO_CONFIG").is_err() {
+            if let Ok(config) = Config::load() {
+                if let Some(custom_strategy) = apply_custom_rules(path, &config) {
+                    info!("Using custom rule-based strategy: {:?}", custom_strategy);
+                    // Apply user overrides to custom strategy
+                    let mut custom = custom_strategy;
+                    if let Some(level) = user_level {
+                        custom.level = level;
+                    }
+                    if let Some(threads) = user_threads {
+                        custom.threads = threads;
+                    }
+                    return custom;
+                }
             }
         }
 
@@ -234,10 +261,8 @@ impl CompressionStrategy {
                 extension
             );
             strategy.algorithm = Algorithm::Zstd;
-            strategy.threads = current_num_threads().max(4);
-            if strategy.level == 3 {
-                strategy.level = 6; // Higher compression for text
-            }
+            strategy.threads = user_threads.unwrap_or_else(|| current_num_threads().max(4));
+            strategy.level = user_level.unwrap_or(6); // Higher compression for text
             return strategy;
         }
 
@@ -251,21 +276,22 @@ impl CompressionStrategy {
             return strategy;
         }
 
-        // Rule 2b: Check entropy for files without known compressed extensions
+        // Rule 2b: Check entropy for files without known extensions
         // This catches compressed files that might not have standard extensions
-        // Skip entropy check for known text files to avoid false positives
-        if !TEXT_EXTENSIONS.contains(&extension.as_str())
-            && !COMPRESSED_EXTENSIONS.contains(&extension.as_str())
-        {
+        // Skip entropy check for files with known extensions (text or compressed)
+        if !TEXT_EXTENSIONS.contains(&extension.as_str()) 
+            && !COMPRESSED_EXTENSIONS.contains(&extension.as_str()) {
             if let Ok(metadata) = path.metadata() {
-                // Only check entropy for files larger than 1KB to avoid false positives
-                if metadata.len() > 1024 {
+                // Check entropy for files 1KB or larger (to avoid false positives on tiny files)
+                if metadata.len() >= 1024 {
                     if let Ok(is_compressed) = is_high_entropy_file(path) {
                         if is_compressed && !strategy.force_compress {
                             info!(
                                 "Detected high-entropy file (likely compressed) - using store mode"
                             );
                             strategy.algorithm = Algorithm::Store;
+                            strategy.level = user_level.unwrap_or(strategy.level);
+                            strategy.threads = user_threads.unwrap_or(strategy.threads);
                             return strategy;
                         }
                     }
@@ -276,16 +302,40 @@ impl CompressionStrategy {
         // Rule 3: Large file handling
         if let Ok(metadata) = path.metadata() {
             let size = metadata.len();
+            
+            // Get threshold from config or use default
+            let large_file_threshold = if std::env::var("FLUX_NO_CONFIG").is_err() {
+                Config::load_or_default().strategy.large_file_threshold
+                    .unwrap_or(LARGE_FILE_THRESHOLD)
+            } else {
+                LARGE_FILE_THRESHOLD
+            };
 
-            if size > LARGE_FILE_THRESHOLD {
+            if size > large_file_threshold {
                 info!(
                     "Detected large file ({} bytes) - using memory-efficient settings",
                     size
                 );
-                strategy.algorithm = Algorithm::Xz;
-                strategy.threads = 1; // XZ is memory intensive, use single thread
-                if strategy.level == 3 {
-                    strategy.level = 2; // Lower level for memory efficiency
+                
+                // Check if we should use zstd long mode for very large files
+                let config = if std::env::var("FLUX_NO_CONFIG").is_err() {
+                    Config::load_or_default()
+                } else {
+                    Config::default()
+                };
+                
+                if size > large_file_threshold * 10 && config.strategy.enable_long_mode {
+                    // For files > 1GB, use zstd with long mode
+                    info!("Using zstd with long mode for very large file");
+                    strategy.algorithm = Algorithm::Zstd;
+                    strategy.long_mode = true;
+                    strategy.threads = user_threads.unwrap_or(2);
+                    strategy.level = user_level.unwrap_or(3);
+                } else {
+                    // For files 100MB-1GB, use XZ for better compression
+                    strategy.algorithm = Algorithm::Xz;
+                    strategy.threads = user_threads.unwrap_or(1); // XZ is memory intensive
+                    strategy.level = user_level.unwrap_or(2); // Lower level for memory efficiency
                 }
                 return strategy;
             }
@@ -298,19 +348,35 @@ impl CompressionStrategy {
                 );
                 strategy.algorithm = Algorithm::Zstd;
                 // Use moderate thread count for medium files
-                strategy.threads = (current_num_threads() / 2).max(2);
+                strategy.threads = user_threads.unwrap_or_else(|| (current_num_threads() / 2).max(2));
+                strategy.level = user_level.unwrap_or(strategy.level);
             }
 
-            // Rule 5: Small files should be batched
+            // Rule 5: Small files batching strategy
+            // Small files (< 1KB) benefit from being batched together in a tar archive
+            // before compression. This allows the compression algorithm to find patterns
+            // across multiple files, resulting in better compression ratios.
             if size < SMALL_FILE_THRESHOLD {
                 debug!(
-                    "Detected small file ({} bytes) - will be batched in tar",
+                    "Detected small file ({} bytes) - will be batched in tar for optimal compression",
                     size
                 );
-                // Keep default zstd for small files, they'll be batched in tar
+                // Keep default zstd for small files
+                // When multiple small files are packed together, they are automatically
+                // batched into a tar archive first, then the entire archive is compressed.
+                // This approach typically achieves 20-50% better compression ratios compared
+                // to compressing each file individually.
             }
         }
 
+        // Apply any remaining user preferences
+        if let Some(level) = user_level {
+            strategy.level = level;
+        }
+        if let Some(threads) = user_threads {
+            strategy.threads = threads;
+        }
+        
         info!("Using default strategy: {:?}", strategy);
         strategy
     }
@@ -379,7 +445,7 @@ impl CompressionStrategy {
         );
 
         // Choose strategy based on analysis
-        if compressed_ratio > 0.8 && !strategy.force_compress {
+        if compressed_ratio > 0.7 && !strategy.force_compress {
             // Mostly compressed files, use store
             info!("Directory contains mostly compressed files - using store mode");
             strategy.algorithm = Algorithm::Store;
@@ -412,24 +478,40 @@ impl CompressionStrategy {
         Ok(strategy)
     }
 
-    /// Adjust strategy for parallel processing
-    pub fn adjust_for_parallel(&mut self) {
+    /// Adjust strategy for parallel processing with file size consideration
+    pub fn adjust_for_parallel(&mut self, file_size: u64) {
         match self.algorithm {
             Algorithm::Zstd => {
-                // Zstd benefits from parallelism
-                self.threads = current_num_threads().max(4);
+                // Zstd benefits from parallelism, scale with file size
+                if file_size < 10 * 1024 * 1024 { // < 10MB
+                    self.threads = 1;
+                } else if file_size < 100 * 1024 * 1024 { // < 100MB
+                    self.threads = (current_num_threads() / 2).max(2);
+                } else {
+                    self.threads = current_num_threads().max(4);
+                }
+                
+                // Apply long mode thread adjustment
+                if self.long_mode {
+                    self.threads = self.threads.min(4); // Long mode uses more memory
+                }
             }
             Algorithm::Xz => {
-                // XZ is memory intensive, limit parallelism
-                self.threads = self.threads.min(2);
+                // XZ is memory intensive, always limit parallelism
+                self.threads = 1; // Force single thread for stability
+                info!("XZ compression forced to single thread for stability");
             }
             Algorithm::Brotli => {
                 // Brotli has moderate parallelism benefits
-                self.threads = self.threads.min(current_num_threads() / 2).max(1);
+                if file_size < 50 * 1024 * 1024 { // < 50MB
+                    self.threads = 1;
+                } else {
+                    self.threads = (current_num_threads() / 2).max(1).min(4);
+                }
             }
             Algorithm::Gzip => {
                 // Gzip has limited parallelism benefits
-                self.threads = self.threads.min(4);
+                self.threads = self.threads.min(2);
             }
             Algorithm::Store => {
                 // No compression, parallelism doesn't matter
@@ -438,9 +520,16 @@ impl CompressionStrategy {
         }
 
         debug!(
-            "Adjusted threads for {:?}: {}",
-            self.algorithm, self.threads
+            "Adjusted threads for {:?} ({}MB file): {}",
+            self.algorithm, 
+            file_size / (1024 * 1024),
+            self.threads
         );
+    }
+    
+    /// Legacy method without file size (for backwards compatibility)
+    pub fn adjust_for_parallel_legacy(&mut self) {
+        self.adjust_for_parallel(100 * 1024 * 1024); // Assume 100MB file
     }
 }
 

@@ -2,7 +2,7 @@
 
 use eframe::egui;
 use crossbeam_channel::{Receiver, Sender};
-use std::{thread, path::PathBuf};
+use std::{thread, path::PathBuf, time::{Duration, Instant}};
 
 use crate::task::{TaskCommand, ToUi, TaskResult};
 use crate::views::{draw_packing_view, PackingAction, draw_extracting_view, ExtractingAction};
@@ -16,6 +16,22 @@ pub enum AppView {
     Packing,
     /// Extracting archive view
     Extracting,
+}
+
+/// Notification type
+#[derive(Debug, Clone)]
+pub enum NotificationType {
+    Success,
+    Error,
+    Info,
+}
+
+/// Notification to display to user
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub message: String,
+    pub notification_type: NotificationType,
+    pub created_at: Instant,
 }
 
 /// Main application structure
@@ -40,6 +56,8 @@ pub struct FluxApp {
     compression_format: String,
     /// Is task running
     is_busy: bool,
+    /// Active notifications
+    notifications: Vec<Notification>,
 }
 
 impl FluxApp {
@@ -83,6 +101,7 @@ impl FluxApp {
             output_path: None,
             compression_format: "tar.zst".to_string(),
             is_busy: false,
+            notifications: Vec::new(),
         }
     }
     
@@ -95,6 +114,7 @@ impl FluxApp {
         // Check if it's a single archive file
         if files.len() == 1 {
             let file = &files[0];
+            let file_name = file.file_name().map(|n| n.to_string_lossy().to_string());
             
             // Check for common archive extensions
             if let Some(ext) = file.extension() {
@@ -103,18 +123,26 @@ impl FluxApp {
                     // Switch to extracting view
                     self.view = AppView::Extracting;
                     self.input_files = files;
+                    self.add_notification(
+                        format!("Ready to extract: {}", file_name.as_deref().unwrap_or("archive")),
+                        NotificationType::Info
+                    );
                     return;
                 }
             }
             
             // Also check for compound extensions like .tar.gz
-            if let Some(name) = file.file_name() {
-                let name_str = name.to_string_lossy().to_lowercase();
-                if name_str.ends_with(".tar.gz") || name_str.ends_with(".tar.zst") || 
-                   name_str.ends_with(".tar.xz") || name_str.ends_with(".tar.br") {
+            if let Some(name) = &file_name {
+                let name_lower = name.to_lowercase();
+                if name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tar.zst") || 
+                   name_lower.ends_with(".tar.xz") || name_lower.ends_with(".tar.br") {
                     // Switch to extracting view
                     self.view = AppView::Extracting;
                     self.input_files = files;
+                    self.add_notification(
+                        format!("Ready to extract: {}", name),
+                        NotificationType::Info
+                    );
                     return;
                 }
             }
@@ -122,7 +150,12 @@ impl FluxApp {
         
         // Multiple files, single non-archive file, or directories - switch to packing view
         self.view = AppView::Packing;
+        let count = files.len();
         self.input_files = files;
+        self.add_notification(
+            format!("Ready to pack {} file{}", count, if count == 1 { "" } else { "s" }),
+            NotificationType::Info
+        );
     }
     
     /// Draw the welcome view
@@ -190,6 +223,17 @@ impl FluxApp {
         match self.view {
             AppView::Packing => {
                 if let Some(output) = &self.output_path {
+                    // Validate output path
+                    if let Some(parent) = output.parent() {
+                        if !parent.exists() {
+                            self.add_notification(
+                                "Output directory does not exist".to_string(),
+                                NotificationType::Error
+                            );
+                            return;
+                        }
+                    }
+                    
                     // Determine the algorithm based on the selected compression format
                     let algorithm = match self.compression_format.as_str() {
                         "tar.gz" => Some("gz".to_string()),
@@ -218,11 +262,43 @@ impl FluxApp {
                         self.is_busy = true;
                         self.current_progress = 0.0;
                         self.status_text = "Starting pack operation...".to_string();
+                        self.add_notification(
+                            "Starting to create archive...".to_string(),
+                            NotificationType::Info
+                        );
+                    } else {
+                        self.add_notification(
+                            "Failed to start task: background thread not responding".to_string(),
+                            NotificationType::Error
+                        );
                     }
+                } else {
+                    self.add_notification(
+                        "Please select an output path first".to_string(),
+                        NotificationType::Error
+                    );
                 }
             }
             AppView::Extracting => {
                 if let (Some(archive), Some(output_dir)) = (self.input_files.first(), &self.output_path) {
+                    // Validate archive exists
+                    if !archive.exists() {
+                        self.add_notification(
+                            "Archive file not found".to_string(),
+                            NotificationType::Error
+                        );
+                        return;
+                    }
+                    
+                    // Validate output directory exists
+                    if !output_dir.exists() {
+                        self.add_notification(
+                            "Output directory does not exist".to_string(),
+                            NotificationType::Error
+                        );
+                        return;
+                    }
+                    
                     let command = TaskCommand::Extract {
                         archive: archive.clone(),
                         output_dir: output_dir.clone(),
@@ -232,11 +308,68 @@ impl FluxApp {
                         self.is_busy = true;
                         self.current_progress = 0.0;
                         self.status_text = "Starting extraction...".to_string();
+                        self.add_notification(
+                            "Starting extraction...".to_string(),
+                            NotificationType::Info
+                        );
+                    } else {
+                        self.add_notification(
+                            "Failed to start task: background thread not responding".to_string(),
+                            NotificationType::Error
+                        );
                     }
+                } else {
+                    self.add_notification(
+                        "Please select an archive and output directory first".to_string(),
+                        NotificationType::Error
+                    );
                 }
             }
             AppView::Welcome => {}
         }
+    }
+    
+    /// Add a notification
+    fn add_notification(&mut self, message: String, notification_type: NotificationType) {
+        self.notifications.push(Notification {
+            message,
+            notification_type,
+            created_at: Instant::now(),
+        });
+    }
+    
+    /// Draw notifications
+    fn draw_notifications(&mut self, ctx: &egui::Context) {
+        // Remove old notifications (older than 5 seconds)
+        self.notifications.retain(|n| n.created_at.elapsed() < Duration::from_secs(5));
+        
+        if self.notifications.is_empty() {
+            return;
+        }
+        
+        // Position notifications at top-right corner
+        egui::Area::new(egui::Id::new("notifications"))
+            .fixed_pos(egui::pos2(ctx.screen_rect().width() - 320.0, 10.0))
+            .show(ctx, |ui| {
+                ui.set_width(300.0);
+                
+                for notification in &self.notifications {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            // Icon based on notification type
+                            let (icon, color) = match notification.notification_type {
+                                NotificationType::Success => ("✅", egui::Color32::from_rgb(0, 200, 0)),
+                                NotificationType::Error => ("❌", egui::Color32::from_rgb(200, 0, 0)),
+                                NotificationType::Info => ("ℹ️", egui::Color32::from_rgb(0, 100, 200)),
+                            };
+                            
+                            ui.colored_label(color, icon);
+                            ui.label(&notification.message);
+                        });
+                    });
+                    ui.add_space(5.0);
+                }
+            });
     }
 }
 
@@ -268,10 +401,24 @@ impl eframe::App for FluxApp {
                         TaskResult::Success => {
                             self.status_text = "Task completed successfully!".to_string();
                             self.current_progress = 1.0;
+                            
+                            // Add success notification
+                            let message = match self.view {
+                                AppView::Packing => "Archive created successfully!",
+                                AppView::Extracting => "Files extracted successfully!",
+                                _ => "Operation completed successfully!",
+                            };
+                            self.add_notification(message.to_string(), NotificationType::Success);
                         }
                         TaskResult::Error(err) => {
                             self.status_text = format!("Error: {}", err);
                             self.current_progress = 0.0;
+                            
+                            // Add error notification
+                            self.add_notification(
+                                format!("Operation failed: {}", err),
+                                NotificationType::Error
+                            );
                         }
                     }
                 }
@@ -391,8 +538,11 @@ impl eframe::App for FluxApp {
             }
         });
         
-        // Request repaint if busy
-        if self.is_busy {
+        // Draw notifications on top of everything
+        self.draw_notifications(ctx);
+        
+        // Request repaint if busy or have active notifications
+        if self.is_busy || !self.notifications.is_empty() {
             ctx.request_repaint();
         }
     }

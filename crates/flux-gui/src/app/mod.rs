@@ -37,9 +37,8 @@ impl FluxApp {
         // Spawn background thread
         let task_handle = thread::spawn(move || {
             // Background thread main loop
-            loop {
-                match task_receiver.recv() {
-                    Ok(command) => match command {
+            while let Ok(command) = task_receiver.recv() {
+                match command {
                         TaskCommand::Pack {
                             inputs,
                             output,
@@ -84,11 +83,20 @@ impl FluxApp {
                                 &ui_sender,
                             );
                         }
-                    },
-                    Err(_) => {
-                        // Channel closed, exit thread
-                        break;
-                    }
+                        TaskCommand::ExtractSelected {
+                            archive_path,
+                            output_dir,
+                            entry_paths,
+                            cancel_flag,
+                        } => {
+                            crate::handle_extract_selected_task(
+                                archive_path,
+                                output_dir,
+                                entry_paths,
+                                cancel_flag,
+                                &ui_sender,
+                            );
+                        }
                 }
             }
         });

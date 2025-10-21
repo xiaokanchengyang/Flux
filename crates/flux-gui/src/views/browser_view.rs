@@ -151,6 +151,7 @@ impl BrowserState {
     }
 
     /// Toggle selection of an item
+    #[allow(dead_code)]
     pub fn toggle_selection(&mut self, path: PathBuf) {
         if self.selected.contains(&path) {
             self.selected.remove(&path);
@@ -160,6 +161,7 @@ impl BrowserState {
     }
 
     /// Select all items under a node
+    #[allow(dead_code)]
     pub fn select_node_recursive(&mut self, node: &TreeNode) {
         let mut paths = Vec::new();
         node.get_all_entry_paths(&mut paths);
@@ -198,8 +200,10 @@ impl BrowserState {
 #[derive(Debug, Clone)]
 pub enum BrowserAction {
     /// Extract selected items to a directory
+    #[allow(dead_code)]
     ExtractSelected(PathBuf),
     /// Extract all items to a directory
+    #[allow(dead_code)]
     ExtractAll(PathBuf),
     /// Close the browser and return to main view
     Close,

@@ -14,7 +14,7 @@ use crate::strategy::{Algorithm, CompressionStrategy};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::{debug, info};
 
 /// Archive entry information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -562,5 +562,64 @@ pub fn hoist_single_directory(output_dir: &Path) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Extract specific entries from an archive
+pub fn extract_entries<P: AsRef<Path>, Q: AsRef<Path>>(
+    archive: P,
+    output: Q,
+    entry_paths: &[PathBuf],
+    options: ExtractOptions,
+) -> Result<()> {
+    let archive = archive.as_ref();
+    let output = output.as_ref();
+    
+    info!("Extracting {} entries from archive: {:?}", entry_paths.len(), archive);
+    
+    // Create output directory if it doesn't exist
+    std::fs::create_dir_all(output)?;
+    
+    // Create extractor with security checks
+    let extractor = create_secure_extractor(archive)?;
+    
+    // Get all entries
+    let entries: Vec<_> = extractor.entries(archive)?.collect::<Result<Vec<_>>>()?;
+    
+    // Filter to only requested entries
+    let entry_paths_set: std::collections::HashSet<_> = entry_paths.iter().collect();
+    let filtered_entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry_paths_set.contains(&entry.path))
+        .collect();
+    
+    if filtered_entries.is_empty() {
+        return Err(Error::Archive("No matching entries found in archive".to_string()));
+    }
+    
+    info!("Found {} matching entries to extract", filtered_entries.len());
+    
+    // Extract each entry
+    for entry in filtered_entries {
+        let dest_path = output.join(&entry.path);
+        
+        // Create parent directory if needed
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        
+        // Extract the entry
+        let extract_options = extractor::ExtractEntryOptions {
+            overwrite: options.overwrite,
+            preserve_permissions: true,
+            preserve_timestamps: true,
+            follow_symlinks: false,
+        };
+        
+        extractor.extract_entry(archive, &entry.path, &dest_path, extract_options)?;
+        debug!("Extracted: {:?}", entry.path);
+    }
+    
+    info!("Partial extraction complete");
     Ok(())
 }

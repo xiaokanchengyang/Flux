@@ -198,7 +198,7 @@ pub fn handle_pack_task(
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
 fn pack_multiple_tar(
     inputs: &[PathBuf],
-    output: &PathBuf,
+    output: &Path,
     ui_sender: &Sender<ToUi>,
     processed_size: &mut u64,
     total_size: u64,
@@ -241,7 +241,7 @@ fn pack_multiple_tar(
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker, options))]
 fn pack_multiple_tar_compressed(
     inputs: &[PathBuf],
-    output: &PathBuf,
+    output: &Path,
     ui_sender: &Sender<ToUi>,
     processed_size: &mut u64,
     total_size: u64,
@@ -293,7 +293,7 @@ fn pack_multiple_tar_compressed(
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
 fn pack_multiple_zip(
     inputs: &[PathBuf],
-    output: &PathBuf,
+    output: &Path,
     ui_sender: &Sender<ToUi>,
     processed_size: &mut u64,
     total_size: u64,
@@ -715,6 +715,53 @@ pub fn handle_sync_task(
                 let _ = ui_sender.send(ToUi::Log(format!("Failed to create manifest: {}", e)));
                 let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
             }
+        }
+    }
+}
+
+/// Handle extract selected entries task in background thread
+#[instrument(skip(ui_sender, cancel_flag))]
+pub fn handle_extract_selected_task(
+    archive_path: PathBuf,
+    output_dir: PathBuf,
+    entry_paths: Vec<PathBuf>,
+    cancel_flag: Arc<AtomicBool>,
+    ui_sender: &Sender<ToUi>,
+) {
+    info!("Starting extraction of {} selected entries", entry_paths.len());
+    
+    // Check cancellation
+    if cancel_flag.load(Ordering::Relaxed) {
+        let _ = ui_sender.send(ToUi::Finished(TaskResult::Cancelled));
+        return;
+    }
+    
+    // Send initial progress
+    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: 0,
+        total_bytes: 0,
+        current_file: format!("Extracting {} selected files...", entry_paths.len()),
+        speed_bps: 0.0,
+        eta_seconds: None,
+    }));
+    
+    // Create extraction options
+    let options = flux_core::archive::ExtractOptions {
+        overwrite: true,
+        skip: false,
+        rename: false,
+        strip_components: None,
+        hoist: false,
+    };
+    
+    // Perform extraction
+    match flux_core::archive::extract_entries(&archive_path, &output_dir, &entry_paths, options) {
+        Ok(()) => {
+            let message = format!("Successfully extracted {} files", entry_paths.len());
+            let _ = ui_sender.send(ToUi::Finished(TaskResult::Success(message)));
+        }
+        Err(e) => {
+            let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
         }
     }
 }

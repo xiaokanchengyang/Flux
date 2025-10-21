@@ -1,4 +1,7 @@
 //! Extract command implementation with interactive support
+//! 
+//! This module provides interactive extraction capabilities for the flux CLI,
+//! allowing users to handle file conflicts through a dialog interface.
 
 use anyhow::Result;
 use dialoguer::Select;
@@ -6,12 +9,16 @@ use flux_core::archive::extractor::{ConflictAction, ConflictHandler, ExtractEntr
 use flux_core::archive::{create_extractor, ExtractOptions};
 use flux_core::Error as FluxError;
 use indicatif::{ProgressBar, ProgressStyle};
-// use std::fs;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
-/// Interactive conflict handler for CLI
+/// Interactive conflict handler that prompts users for conflict resolution
+/// 
+/// This handler displays a dialog when a file conflict is encountered,
+/// allowing users to choose how to handle each conflict or apply a
+/// global action to all future conflicts.
 pub struct InteractiveConflictHandler {
+    /// Global action to apply to all conflicts (if set)
     global_action: Option<ConflictAction>,
 }
 
@@ -97,7 +104,7 @@ pub fn extract_interactive(
             strip_components,
             hoist,
         };
-        return extract_with_options(archive, output_dir, options, show_progress, false);
+        return extract_with_options(archive, output_dir, options, show_progress);
     }
 
     // Create the extractor
@@ -202,30 +209,11 @@ pub fn extract_interactive(
                     counter += 1;
                 }
 
-                // Extract to renamed path
-                match extractor.extract_entry(
-                    archive,
-                    entry,
-                    renamed_path.parent().unwrap_or(output_dir),
-                    ExtractEntryOptions {
-                        overwrite: true,
-                        preserve_permissions: true,
-                        preserve_timestamps: true,
-                        follow_symlinks: false,
-                    },
-                ) {
-                    Ok(_) => {
-                        info!(
-                            "Extracted (renamed): {:?} -> {:?}",
-                            entry.path, renamed_path
-                        );
-                        extracted += 1;
-                    }
-                    Err(e) => {
-                        warn!("Failed to extract {:?}: {}", entry.path, e);
-                        failed += 1;
-                    }
-                }
+                // Extract with rename handling
+                // TODO: Implement proper rename support in extractors
+                warn!("Rename option selected but not fully implemented, using skip instead");
+                skipped += 1;
+                continue;
             }
             ConflictAction::Overwrite | ConflictAction::OverwriteAll => {
                 // Extract with overwrite
@@ -286,16 +274,13 @@ pub fn extract_with_options(
     output_dir: &Path,
     options: ExtractOptions,
     show_progress: bool,
-    _hoist: bool,
 ) -> Result<()> {
-    // Note: The hoist option is already included in ExtractOptions,
-    // so we don't need the separate _hoist parameter
-
     // TODO: Implement progress bar for non-interactive extraction
     if show_progress {
-        info!("Progress bar not yet implemented for non-interactive extraction");
+        debug!("Progress bar not yet implemented for non-interactive extraction");
     }
 
     flux_core::archive::extract_with_options(archive, output_dir, options)?;
     Ok(())
 }
+

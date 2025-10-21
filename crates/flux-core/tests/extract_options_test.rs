@@ -26,6 +26,7 @@ fn test_overwrite_option() {
         skip: false,
         rename: false,
         strip_components: None,
+        ..Default::default()
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -39,6 +40,7 @@ fn test_overwrite_option() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -72,6 +74,7 @@ fn test_skip_option() {
         skip: false,
         rename: false,
         strip_components: None,
+        ..Default::default()
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -85,6 +88,7 @@ fn test_skip_option() {
         skip: true,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -114,6 +118,7 @@ fn test_rename_option() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -123,6 +128,7 @@ fn test_rename_option() {
         skip: false,
         rename: true,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -159,6 +165,7 @@ fn test_strip_components() {
         skip: false,
         rename: false,
         strip_components: Some(1),
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -204,6 +211,7 @@ fn test_strip_components_deep() {
         skip: false,
         rename: false,
         strip_components: Some(3),
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 

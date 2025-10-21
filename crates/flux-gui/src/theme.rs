@@ -185,6 +185,7 @@ impl FluxTheme {
     }
 
     /// Create a primary button with theme styling
+    #[allow(dead_code)]
     pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.primary)
@@ -192,6 +193,7 @@ impl FluxTheme {
     }
 
     /// Create a secondary button with theme styling
+    #[allow(dead_code)]
     pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.secondary)
@@ -199,6 +201,7 @@ impl FluxTheme {
     }
 
     /// Style a button widget (modifies UI visuals temporarily)
+    #[allow(dead_code)]
     pub fn style_button(&self, ui: &mut egui::Ui, is_primary: bool) {
         let button_color = if is_primary {
             self.colors.primary

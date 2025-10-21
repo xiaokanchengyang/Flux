@@ -46,7 +46,6 @@ fn test_pack_to_cloud_url() {
     // Test that packing to cloud URL is recognized
     cmd.args(&[
         "pack",
-        "-i",
         test_file.to_str().unwrap(),
         "-o",
         "s3://bucket/output.tar",

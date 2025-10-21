@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024; // 8MB buffer
 
-/// A reader that adapts cloud storage objects to implement std::io::Read and Seek
+/// A reader that adapts cloud storage objects to implement `std::io::Read` and `Seek`
 pub struct CloudReader {
     store: CloudStore,
     path: Path,
@@ -24,7 +24,10 @@ struct Buffer {
 }
 
 impl CloudReader {
-    /// Create a new CloudReader for the given cloud URL
+    /// Create a new `CloudReader` for the given cloud URL
+    ///
+    /// # Errors
+    /// Returns an error if the URL is invalid or the cloud store cannot be created
     pub fn new(url: &str) -> Result<Self> {
         let cloud_path = CloudPath::parse(url)?;
         let store = CloudStore::new(&cloud_path)?;
@@ -44,7 +47,10 @@ impl CloudReader {
         })
     }
 
-    /// Create a CloudReader from an existing CloudStore and path
+    /// Create a `CloudReader` from an existing `CloudStore` and path
+    ///
+    /// # Errors
+    /// Returns an error if the object metadata cannot be retrieved
     pub fn from_store(store: CloudStore, path: Path) -> Result<Self> {
         // Get object metadata to know the size
         let meta = store

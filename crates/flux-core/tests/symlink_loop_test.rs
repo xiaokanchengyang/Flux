@@ -5,10 +5,9 @@ mod symlink_loop_tests {
     use std::os::unix::fs as unix_fs;
     use tempfile::TempDir;
 
-    // Skip the symlink loop test for now as WalkDir hangs on loops
-    // TODO: Implement proper symlink loop detection before entering WalkDir
-    /*
+    // Test symlink loop detection
     #[test]
+    #[ignore = "Symlink loop detection needs deeper investigation"]
     fn test_symlink_loop_detection() {
         let temp_dir = TempDir::new().unwrap();
         let base = temp_dir.path();
@@ -33,10 +32,9 @@ mod symlink_loop_tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Symlink loop detected"));
     }
-    */
 
     #[test]
-    #[ignore = "WalkDir hangs on some symlink configurations"]
+    #[ignore = "Symlink handling needs deeper investigation"]
     fn test_symlink_chain_without_loop() {
         let temp_dir = TempDir::new().unwrap();
         let base = temp_dir.path();
@@ -59,7 +57,7 @@ mod symlink_loop_tests {
     }
 
     #[test]
-    #[ignore = "WalkDir hangs on some symlink configurations"]
+    #[ignore = "Symlink handling needs deeper investigation"]
     fn test_broken_symlink_handling() {
         let temp_dir = TempDir::new().unwrap();
         let base = temp_dir.path();

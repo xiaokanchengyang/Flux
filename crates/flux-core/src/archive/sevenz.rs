@@ -37,7 +37,7 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> 
 
     // Open the archive
     let mut sz = SevenZReader::open(archive_path, Password::empty())
-        .map_err(|e| Error::ArchiveError(format!("Failed to open 7z archive: {}", e)))?;
+        .map_err(|e| Error::Archive(format!("Failed to open 7z archive: {}", e)))?;
 
     // Extract all entries
     sz.for_each_entries(|entry, reader| {
@@ -60,7 +60,7 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive: P, output_dir: Q) -> 
 
         Ok(true) // Continue extraction
     })
-    .map_err(|e| Error::ArchiveError(format!("Failed to extract 7z archive: {}", e)))?;
+    .map_err(|e| Error::Archive(format!("Failed to extract 7z archive: {}", e)))?;
 
     info!("7z extraction complete");
     Ok(())
@@ -82,7 +82,7 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 
     // Open the archive
     let mut sz = SevenZReader::open(archive_path, Password::empty())
-        .map_err(|e| Error::ArchiveError(format!("Failed to open 7z archive: {}", e)))?;
+        .map_err(|e| Error::Archive(format!("Failed to open 7z archive: {}", e)))?;
 
     // Extract all entries
     sz.for_each_entries(|entry, reader| {
@@ -150,7 +150,7 @@ pub fn extract_7z_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 
         Ok(true) // Continue extraction
     })
-    .map_err(|e| Error::ArchiveError(format!("Failed to extract 7z archive: {}", e)))?;
+    .map_err(|e| Error::Archive(format!("Failed to extract 7z archive: {}", e)))?;
 
     info!("7z extraction complete");
     Ok(())

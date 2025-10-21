@@ -163,7 +163,7 @@ pub fn parse_size(size_str: &str) -> Result<u64> {
         .unwrap_or(size_str.len());
 
     if split_pos == 0 {
-        return Err(Error::ConfigError(format!(
+        return Err(Error::Config(format!(
             "Invalid size format: {}",
             size_str
         )));
@@ -172,7 +172,7 @@ pub fn parse_size(size_str: &str) -> Result<u64> {
     let (number_part, unit_part) = size_str.split_at(split_pos);
     let number: f64 = number_part
         .parse()
-        .map_err(|_| Error::ConfigError(format!("Invalid number in size: {}", number_part)))?;
+        .map_err(|_| Error::Config(format!("Invalid number in size: {}", number_part)))?;
 
     let multiplier: i64 = match unit_part.trim().to_lowercase().as_str() {
         "" | "b" => 1,
@@ -185,7 +185,7 @@ pub fn parse_size(size_str: &str) -> Result<u64> {
         "gi" | "gib" => 1_073_741_824,
         "ti" | "tib" => 1_099_511_627_776,
         _ => {
-            return Err(Error::ConfigError(format!(
+            return Err(Error::Config(format!(
                 "Unknown size unit: {}",
                 unit_part
             )))
@@ -283,7 +283,7 @@ impl Config {
     /// Get the configuration file path
     pub fn config_path() -> Result<PathBuf> {
         let config_dir = config_dir().ok_or_else(|| {
-            Error::ConfigError("Unable to determine config directory".to_string())
+            Error::Config("Unable to determine config directory".to_string())
         })?;
 
         let flux_dir = config_dir.join("flux");
@@ -389,7 +389,7 @@ priority = 95
 
         let contents = fs::read_to_string(&path)?;
         let config: Config = toml::from_str(&contents)
-            .map_err(|e| Error::ConfigError(format!("Failed to parse config: {}", e)))?;
+            .map_err(|e| Error::Config(format!("Failed to parse config: {}", e)))?;
 
         Ok(config)
     }
@@ -398,7 +398,7 @@ priority = 95
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self)
-            .map_err(|e| Error::ConfigError(format!("Failed to serialize config: {}", e)))?;
+            .map_err(|e| Error::Config(format!("Failed to serialize config: {}", e)))?;
 
         fs::write(&path, contents)?;
         Ok(())

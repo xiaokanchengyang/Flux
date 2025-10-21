@@ -248,12 +248,14 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
 
     #[cfg(windows)]
     {
-        use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use winapi::um::fileapi::GetDiskFreeSpaceExW;
         use winapi::um::winnt::ULARGE_INTEGER;
 
-        let path_wide: Vec<u16> = OsStr::new(&path.to_string_lossy())
+        // Build a null-terminated wide string directly from the path's OsStr
+        // Using to_string_lossy() produces a Cow<str> that does not implement AsRef<OsStr>
+        let path_wide: Vec<u16> = path
+            .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();

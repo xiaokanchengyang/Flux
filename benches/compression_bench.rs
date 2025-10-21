@@ -189,7 +189,7 @@ fn bench_smart_strategy(c: &mut Criterion) {
                     fs::write(&text_file, "This is a text document.\n".repeat(1000)).unwrap();
                 }
                 for i in 0..5 {
-                    let binary_file = temp_dir.path().join(format!("data_{}.bin", i));
+                    let _binary_file = temp_dir.path().join(format!("data_{}.bin", i));
                     generate_test_data(&temp_dir, 1, 1024 * 1024, false);
                 }
                 (temp_dir, TempDir::new().unwrap())
@@ -226,7 +226,7 @@ fn bench_smart_strategy(c: &mut Criterion) {
                     fs::write(&text_file, "This is a text document.\n".repeat(1000)).unwrap();
                 }
                 for i in 0..5 {
-                    let binary_file = temp_dir.path().join(format!("data_{}.bin", i));
+                    let _binary_file = temp_dir.path().join(format!("data_{}.bin", i));
                     generate_test_data(&temp_dir, 1, 1024 * 1024, false);
                 }
                 (temp_dir, TempDir::new().unwrap())

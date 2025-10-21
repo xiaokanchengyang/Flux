@@ -390,6 +390,12 @@ pub mod zip_modifier {
     
     pub struct ZipModifier;
     
+    impl Default for ZipModifier {
+        fn default() -> Self {
+            Self
+        }
+    }
+    
     impl ZipModifier {
         pub fn new() -> Self {
             Self
@@ -508,10 +514,15 @@ pub mod zip_modifier {
                     info!("Removing: {}", name);
                     removed_count += 1;
                 } else {
-                    let options: FileOptions<()> = FileOptions::default()
+                    let mut file_options: FileOptions<()> = FileOptions::default()
                         .compression_method(entry.compression());
                     
-                    zip_writer.start_file(name, options)?;
+                    // Apply compression level from options if using deflate
+                    if entry.compression() == zip::CompressionMethod::Deflated && options.compression_level > 0 {
+                        file_options = file_options.compression_level(Some(options.compression_level as i64));
+                    }
+                    
+                    zip_writer.start_file(name, file_options)?;
                     std::io::copy(&mut entry, &mut zip_writer)?;
                 }
             }

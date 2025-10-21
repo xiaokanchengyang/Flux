@@ -125,32 +125,29 @@ fn test_zip_path_traversal_protection() {
     // Extract entries
     for entry_result in extractor.entries(&archive_path).unwrap() {
         match entry_result {
-            Ok(entry) => {
-                match extractor.extract_entry(&archive_path, &entry, &extract_dir, options.clone())
-                {
-                    Ok(_) => {
-                        extracted_count += 1;
-                        println!("Extracted: {:?}", entry.path);
-                    }
-                    Err(e) => {
-                        blocked_count += 1;
-                        println!("Blocked: {:?} - {}", entry.path, e);
+            Ok(entry) => match extractor.extract_entry(&archive_path, &entry, &extract_dir, options.clone()) {
+                Ok(_) => {
+                    extracted_count += 1;
+                    println!("Extracted: {:?}", entry.path);
+                }
+                Err(e) => {
+                    blocked_count += 1;
+                    println!("Blocked: {:?} - {}", entry.path, e);
 
-                        // Verify it's a security error
-                        match e {
-                            Error::InvalidPath(_) | Error::SecurityError(_) => {
-                                // Expected error types for path traversal
-                            }
-                            _ => {
-                                // Windows-style paths might be allowed on Unix but won't escape
-                                if !entry.path.to_string_lossy().contains("\\") {
-                                    panic!("Unexpected error type: {:?}", e);
-                                }
+                    // Verify it's a security error
+                    match e {
+                        Error::InvalidPath(_) | Error::SecurityError(_) => {
+                            // Expected error types for path traversal
+                        }
+                        _ => {
+                            // Windows-style paths might be allowed on Unix but won't escape
+                            if !entry.path.to_string_lossy().contains("\\") {
+                                panic!("Unexpected error type: {:?}", e);
                             }
                         }
                     }
                 }
-            }
+            },
             Err(e) => {
                 blocked_count += 1;
                 println!("Failed to read entry: {}", e);
@@ -230,14 +227,12 @@ fn test_tar_secure_extraction() {
     };
 
     let mut extracted_count = 0;
-    for entry_result in extractor.entries(&archive_path).unwrap() {
-        if let Ok(entry) = entry_result {
-            if extractor
-                .extract_entry(&archive_path, &entry, &extract_dir, options.clone())
-                .is_ok()
-            {
-                extracted_count += 1;
-            }
+    for entry in extractor.entries(&archive_path).unwrap().flatten() {
+        if extractor
+            .extract_entry(&archive_path, &entry, &extract_dir, options.clone())
+            .is_ok()
+        {
+            extracted_count += 1;
         }
     }
 

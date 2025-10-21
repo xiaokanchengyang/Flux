@@ -18,6 +18,7 @@ pub struct ColorScheme {
     /// Primary hover color
     pub primary_hover: Color32,
     /// Secondary color
+    #[allow(dead_code)]
     pub secondary: Color32,
     /// Background color for windows
     pub background: Color32,
@@ -30,6 +31,7 @@ pub struct ColorScheme {
     /// Hyperlink color
     pub hyperlink: Color32,
     /// Success color
+    #[allow(dead_code)]
     pub success: Color32,
     /// Warning color
     pub warning: Color32,
@@ -185,20 +187,23 @@ impl FluxTheme {
     }
 
     /// Create a primary button with theme styling
-    pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button {
+    #[allow(dead_code)]
+    pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.primary)
             .rounding(Rounding::same(self.rounding))
     }
 
     /// Create a secondary button with theme styling
-    pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button {
+    #[allow(dead_code)]
+    pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.secondary)
             .rounding(Rounding::same(self.rounding))
     }
 
     /// Style a button widget (modifies UI visuals temporarily)
+    #[allow(dead_code)]
     pub fn style_button(&self, ui: &mut egui::Ui, is_primary: bool) {
         let button_color = if is_primary {
             self.colors.primary

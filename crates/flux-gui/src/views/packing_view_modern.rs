@@ -7,6 +7,7 @@ use egui_phosphor::regular;
 use std::path::PathBuf;
 
 /// Draw the modern packing view
+#[allow(clippy::too_many_arguments)]
 pub fn draw_packing_view_modern(
     ctx: &egui::Context,
     ui: &mut egui::Ui,

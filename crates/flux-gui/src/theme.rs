@@ -79,20 +79,20 @@ impl FluxTheme {
         Self {
             mode: ThemeMode::Dark,
             colors: ColorScheme {
-                primary: Color32::from_rgb(70, 130, 210),
-                primary_hover: Color32::from_rgb(90, 150, 230),
+                primary: Color32::from_rgb(88, 101, 242),      // Modern purple-blue
+                primary_hover: Color32::from_rgb(110, 121, 245),
                 secondary: Color32::from_gray(150),
-                background: Color32::from_gray(30),
-                panel_bg: Color32::from_gray(40),
-                text: Color32::from_gray(220),
-                text_weak: Color32::from_gray(150),
-                hyperlink: Color32::from_rgb(100, 149, 237),
-                success: Color32::from_rgb(90, 198, 90),
-                warning: Color32::from_rgb(255, 200, 100),
-                error: Color32::from_rgb(255, 100, 100),
+                background: Color32::from_rgb(23, 25, 35),     // Darker, more modern
+                panel_bg: Color32::from_rgb(30, 33, 45),       // Slightly lighter panel
+                text: Color32::from_gray(235),                 // Brighter text
+                text_weak: Color32::from_gray(160),
+                hyperlink: Color32::from_rgb(139, 148, 255),
+                success: Color32::from_rgb(67, 181, 129),      // Modern green
+                warning: Color32::from_rgb(250, 176, 5),       // Modern amber
+                error: Color32::from_rgb(240, 71, 71),         // Modern red
             },
-            rounding: 4.0,
-            spacing: 8.0,
+            rounding: 8.0,  // More rounded for modern look
+            spacing: 10.0,  // More spacious
         }
     }
 

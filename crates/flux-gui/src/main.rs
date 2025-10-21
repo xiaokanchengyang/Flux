@@ -9,6 +9,7 @@ use std::sync::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
+mod animation;
 mod app;
 mod components;
 mod layout;

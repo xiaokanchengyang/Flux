@@ -47,7 +47,9 @@ pub fn pack_tar_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
         pack_file(
             &mut builder,
             input,
-            Path::new(input.file_name().unwrap()),
+            Path::new(input.file_name().ok_or_else(|| {
+                Error::InvalidPath(format!("Invalid file name: {:?}", input))
+            })?),
             follow_symlinks,
         )?;
     } else if input.is_dir() {
@@ -176,8 +178,7 @@ fn pack_directory_with_options<W: Write>(
                 // Handle WalkDir errors (e.g., symlink loops)
                 warn!("Error walking directory: {}", e);
                 // Check if it's a loop error
-                if e.io_error().is_some() && e.path().is_some() {
-                    let path = e.path().unwrap();
+                if let Some(path) = e.path() {
                     if e.loop_ancestor().is_some() {
                         return Err(Error::Archive(format!(
                             "Symlink loop detected at {:?}",

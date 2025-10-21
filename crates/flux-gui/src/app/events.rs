@@ -344,21 +344,35 @@ impl FluxApp {
     pub(super) fn extract_selected_entries(
         &mut self,
         entries: Vec<flux_core::archive::extractor::ArchiveEntry>,
-        _archive_path: PathBuf,
-        _output_dir: PathBuf,
+        archive_path: PathBuf,
+        output_dir: PathBuf,
     ) {
-        // For now, we'll show a message that this is not yet implemented
-        // In the future, this would use the extractor.extract_entry method for each selected entry
         self.toasts
             .info(format!("Extracting {} selected items...", entries.len()));
 
-        // TODO: Implement actual extraction using flux_core
-        // This would involve:
-        // 1. Creating an extractor for the archive
-        // 2. Iterating through selected entries
-        // 3. Calling extract_entry for each one
-        // 4. Showing progress updates
+        // Store the paths of selected entries
+        let entry_count = entries.len();
+        let entry_names: Vec<String> = entries
+            .iter()
+            .map(|e| e.path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string())
+            .collect();
 
-        self.toasts.warning("Partial extraction is coming soon!");
+        // For now, show a detailed message about what would be extracted
+        let message = if entry_count <= 3 {
+            format!("Would extract: {}", entry_names.join(", "))
+        } else {
+            format!("Would extract {} items including: {}, ...", 
+                entry_count, 
+                entry_names.iter().take(3).cloned().collect::<Vec<_>>().join(", "))
+        };
+        
+        self.toasts.info(message);
+        self.toasts.warning("Partial extraction feature is coming soon!");
+        
+        // TODO: Implement partial extraction in flux-core
+        // This requires extending the extractor API to support extracting specific entries
     }
 }

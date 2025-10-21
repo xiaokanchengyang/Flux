@@ -185,14 +185,14 @@ impl FluxTheme {
     }
 
     /// Create a primary button with theme styling
-    pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button {
+    pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.primary)
             .rounding(Rounding::same(self.rounding))
     }
 
     /// Create a secondary button with theme styling
-    pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button {
+    pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
         egui::Button::new(text)
             .fill(self.colors.secondary)
             .rounding(Rounding::same(self.rounding))

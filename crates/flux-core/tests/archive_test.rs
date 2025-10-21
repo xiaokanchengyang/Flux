@@ -101,6 +101,7 @@ fn test_extract_with_skip_option() {
         overwrite: false,
         rename: false,
         strip_components: None,
+        hoist: true,
     };
     extract_with_options(&archive_path, &extract_dir, skip_options).unwrap();
 
@@ -141,6 +142,7 @@ fn test_extract_with_overwrite_option() {
         overwrite: true,
         rename: false,
         strip_components: None,
+        hoist: true,
     };
     extract_with_options(&archive_path, &extract_dir, overwrite_options).unwrap();
 
@@ -178,6 +180,7 @@ fn test_extract_with_rename_option() {
         overwrite: false,
         rename: true,
         strip_components: None,
+        hoist: true,
     };
     extract_with_options(&archive_path, &extract_dir, rename_options).unwrap();
 

@@ -408,16 +408,19 @@ impl eframe::App for FluxApp {
                         }
                         AppView::Packing => {
                             // Handle packing view actions
-                            if let Some(action) = draw_packing_view_modern(
+                            let mut view_ctx = crate::views::packing_view_modern::PackingViewContext {
                                 ctx,
+                                input_files: &self.input_files,
+                                output_path: &self.output_path,
+                                compression_format: &mut self.compression_format,
+                                is_busy: self.is_busy,
+                                theme: &self.theme,
+                                current_progress: self.current_progress,
+                                status_text: &self.status_text,
+                            };
+                            if let Some(action) = draw_packing_view_modern(
                                 ui,
-                                &self.input_files,
-                                &self.output_path,
-                                &mut self.compression_format,
-                                self.is_busy,
-                                &self.theme,
-                                self.current_progress,
-                                &self.status_text,
+                                &mut view_ctx,
                             ) {
                                 match action {
                                     PackingAction::RemoveFile(idx) => {

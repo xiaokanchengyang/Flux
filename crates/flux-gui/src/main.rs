@@ -90,15 +90,18 @@ pub fn handle_pack_task(
             // For ZIP files, we'll pack each file individually
             info!("Creating ZIP archive");
             let _ = ui_sender.send(ToUi::Log("Creating ZIP archive...".to_string()));
+            let mut ctx = PackContext {
+                ui_sender,
+                processed_size: &mut processed_size,
+                total_size,
+                follow_symlinks: options.follow_symlinks,
+                cancel_flag: &cancel_flag,
+                progress_tracker: &mut progress_tracker,
+            };
             if let Err(e) = pack_multiple_zip(
                 &inputs,
                 &output,
-                ui_sender,
-                &mut processed_size,
-                total_size,
-                options.follow_symlinks,
-                &cancel_flag,
-                &mut progress_tracker,
+                &mut ctx,
             ) {
                 error!(error = %e, "Error creating ZIP");
                 let _ = ui_sender.send(ToUi::Log(format!("Error creating ZIP: {}", e)));
@@ -116,30 +119,37 @@ pub fn handle_pack_task(
                 || filename.ends_with(".tar.br")
             {
                 // Pack to compressed tar
+                let mut ctx = PackContext {
+                    ui_sender,
+                    processed_size: &mut processed_size,
+                    total_size,
+                    follow_symlinks: options.follow_symlinks,
+                    cancel_flag: &cancel_flag,
+                    progress_tracker: &mut progress_tracker,
+                };
                 if let Err(e) = pack_multiple_tar_compressed(
                     &inputs,
                     &output,
-                    ui_sender,
-                    &mut processed_size,
-                    total_size,
                     options,
-                    &cancel_flag,
-                    &mut progress_tracker,
+                    &mut ctx,
                 ) {
                     let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
                     return;
                 }
             } else if ext == "tar" {
                 // Pack to uncompressed tar
+                let mut ctx = PackContext {
+                    ui_sender,
+                    processed_size: &mut processed_size,
+                    total_size,
+                    follow_symlinks: options.follow_symlinks,
+                    cancel_flag: &cancel_flag,
+                    progress_tracker: &mut progress_tracker,
+                };
                 if let Err(e) = pack_multiple_tar(
                     &inputs,
                     &output,
-                    ui_sender,
-                    &mut processed_size,
-                    total_size,
-                    options.follow_symlinks,
-                    &cancel_flag,
-                    &mut progress_tracker,
+                    &mut ctx,
                 ) {
                     let _ = ui_sender.send(ToUi::Finished(TaskResult::Error(e.to_string())));
                     return;
@@ -194,17 +204,22 @@ pub fn handle_pack_task(
     let _ = ui_sender.send(ToUi::Finished(TaskResult::Success));
 }
 
+/// Context for packing operations
+struct PackContext<'a> {
+    ui_sender: &'a Sender<ToUi>,
+    processed_size: &'a mut u64,
+    total_size: u64,
+    follow_symlinks: bool,
+    cancel_flag: &'a Arc<AtomicBool>,
+    progress_tracker: &'a mut ProgressTracker,
+}
+
 /// Pack multiple files into a tar archive
-#[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
+#[instrument(skip(ctx))]
 fn pack_multiple_tar(
     inputs: &[PathBuf],
     output: &PathBuf,
-    ui_sender: &Sender<ToUi>,
-    processed_size: &mut u64,
-    total_size: u64,
-    follow_symlinks: bool,
-    cancel_flag: &Arc<AtomicBool>,
-    progress_tracker: &mut ProgressTracker,
+    ctx: &mut PackContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use flux_core::archive::tar;
 
@@ -214,40 +229,36 @@ fn pack_multiple_tar(
     // Send progress updates periodically
     for input in inputs {
         // Check for cancellation
-        if cancel_flag.load(Ordering::SeqCst) {
-            let _ = ui_sender.send(ToUi::Finished(TaskResult::Cancelled));
+        if ctx.cancel_flag.load(Ordering::SeqCst) {
+            let _ = ctx.ui_sender.send(ToUi::Finished(TaskResult::Cancelled));
             return Err("Operation cancelled".into());
         }
 
-        let (speed, eta) = progress_tracker.update(*processed_size, total_size);
-        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
-            processed_bytes: *processed_size,
-            total_bytes: total_size,
+        let (speed, eta) = ctx.progress_tracker.update(*ctx.processed_size, ctx.total_size);
+        let _ = ctx.ui_sender.send(ToUi::Progress(ProgressUpdate {
+            processed_bytes: *ctx.processed_size,
+            total_bytes: ctx.total_size,
             current_file: format!("Adding: {}", input.display()),
             speed_bps: speed,
             eta_seconds: eta,
         }));
 
-        *processed_size += calculate_path_size(input);
+        *ctx.processed_size += calculate_path_size(input);
     }
 
     // Pack all files
-    tar::pack_multiple_files(inputs, output, base_dir.as_deref(), follow_symlinks)?;
+    tar::pack_multiple_files(inputs, output, base_dir.as_deref(), ctx.follow_symlinks)?;
 
     Ok(())
 }
 
 /// Pack multiple files into a compressed tar archive
-#[instrument(skip(ui_sender, cancel_flag, progress_tracker, options))]
+#[instrument(skip(ctx, options))]
 fn pack_multiple_tar_compressed(
     inputs: &[PathBuf],
     output: &PathBuf,
-    ui_sender: &Sender<ToUi>,
-    processed_size: &mut u64,
-    total_size: u64,
     options: flux_core::archive::PackOptions,
-    cancel_flag: &Arc<AtomicBool>,
-    progress_tracker: &mut ProgressTracker,
+    ctx: &mut PackContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // First create uncompressed tar in memory or temp file
     let temp_tar = output.with_extension("tar.tmp");
@@ -256,19 +267,14 @@ fn pack_multiple_tar_compressed(
     pack_multiple_tar(
         inputs,
         &temp_tar,
-        ui_sender,
-        processed_size,
-        total_size,
-        options.follow_symlinks,
-        cancel_flag,
-        progress_tracker,
+        ctx,
     )?;
 
     // Now compress the tar file
-    let (speed, eta) = progress_tracker.update(*processed_size, total_size);
-    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
-        processed_bytes: *processed_size,
-        total_bytes: total_size,
+    let (speed, eta) = ctx.progress_tracker.update(*ctx.processed_size, ctx.total_size);
+    let _ = ctx.ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: *ctx.processed_size,
+        total_bytes: ctx.total_size,
         current_file: "Compressing archive...".to_string(),
         speed_bps: speed,
         eta_seconds: eta,
@@ -290,16 +296,11 @@ fn pack_multiple_tar_compressed(
 }
 
 /// Pack multiple files into a ZIP archive
-#[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
+#[instrument(skip(ctx))]
 fn pack_multiple_zip(
     inputs: &[PathBuf],
     output: &PathBuf,
-    ui_sender: &Sender<ToUi>,
-    processed_size: &mut u64,
-    total_size: u64,
-    follow_symlinks: bool,
-    cancel_flag: &Arc<AtomicBool>,
-    progress_tracker: &mut ProgressTracker,
+    ctx: &mut PackContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // For ZIP, we'll create a temporary directory and copy all files there,
     // then use flux_core to pack them
@@ -313,15 +314,15 @@ fn pack_multiple_zip(
     // Copy all input files to the temp directory
     for (idx, input) in inputs.iter().enumerate() {
         // Check for cancellation
-        if cancel_flag.load(Ordering::SeqCst) {
-            let _ = ui_sender.send(ToUi::Finished(TaskResult::Cancelled));
+        if ctx.cancel_flag.load(Ordering::SeqCst) {
+            let _ = ctx.ui_sender.send(ToUi::Finished(TaskResult::Cancelled));
             return Err("Operation cancelled".into());
         }
 
-        let (speed, eta) = progress_tracker.update(*processed_size, total_size);
-        let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
-            processed_bytes: *processed_size,
-            total_bytes: total_size,
+        let (speed, eta) = ctx.progress_tracker.update(*ctx.processed_size, ctx.total_size);
+        let _ = ctx.ui_sender.send(ToUi::Progress(ProgressUpdate {
+            processed_bytes: *ctx.processed_size,
+            total_bytes: ctx.total_size,
             current_file: format!("Preparing: {}", input.display()),
             speed_bps: speed,
             eta_seconds: eta,
@@ -339,20 +340,20 @@ fn pack_multiple_zip(
             copy_dir_recursive(input, &dest_path)?;
         }
 
-        *processed_size += calculate_path_size(input);
+        *ctx.processed_size += calculate_path_size(input);
     }
 
     // Now use flux_core to pack the temp directory
-    let (speed, eta) = progress_tracker.update(*processed_size, total_size);
-    let _ = ui_sender.send(ToUi::Progress(ProgressUpdate {
-        processed_bytes: *processed_size,
-        total_bytes: total_size,
+    let (speed, eta) = ctx.progress_tracker.update(*ctx.processed_size, ctx.total_size);
+    let _ = ctx.ui_sender.send(ToUi::Progress(ProgressUpdate {
+        processed_bytes: *ctx.processed_size,
+        total_bytes: ctx.total_size,
         current_file: "Creating ZIP archive...".to_string(),
         speed_bps: speed,
         eta_seconds: eta,
     }));
 
-    flux_core::archive::zip::pack_zip_with_options(temp_path, output, follow_symlinks)?;
+    flux_core::archive::zip::pack_zip_with_options(temp_path, output, ctx.follow_symlinks)?;
 
     Ok(())
 }

@@ -184,4 +184,6 @@ fn test_multipart_threshold() {
 
     // The writer should handle large data by switching to multipart
     // This is tested internally in the implementation
+    // Verify data size to ensure test logic is correct
+    assert_eq!(large_data.len(), 20 * 1024 * 1024);
 }

@@ -17,8 +17,6 @@ pub struct ColorScheme {
     pub primary: Color32,
     /// Primary hover color
     pub primary_hover: Color32,
-    /// Secondary color
-    pub secondary: Color32,
     /// Background color for windows
     pub background: Color32,
     /// Background color for panels
@@ -29,8 +27,6 @@ pub struct ColorScheme {
     pub text_weak: Color32,
     /// Hyperlink color
     pub hyperlink: Color32,
-    /// Success color
-    pub success: Color32,
     /// Warning color
     pub warning: Color32,
     /// Error color
@@ -59,13 +55,11 @@ impl FluxTheme {
             colors: ColorScheme {
                 primary: Color32::from_rgb(0, 120, 212),
                 primary_hover: Color32::from_rgb(0, 140, 232),
-                secondary: Color32::from_rgb(100, 100, 100),
                 background: Color32::from_gray(248),
                 panel_bg: Color32::from_gray(240),
                 text: Color32::from_gray(20),
                 text_weak: Color32::from_gray(100),
                 hyperlink: Color32::from_rgb(0, 120, 212),
-                success: Color32::from_rgb(46, 160, 67),
                 warning: Color32::from_rgb(255, 193, 7),
                 error: Color32::from_rgb(220, 53, 69),
             },
@@ -81,13 +75,11 @@ impl FluxTheme {
             colors: ColorScheme {
                 primary: Color32::from_rgb(70, 130, 210),
                 primary_hover: Color32::from_rgb(90, 150, 230),
-                secondary: Color32::from_gray(150),
                 background: Color32::from_gray(30),
                 panel_bg: Color32::from_gray(40),
                 text: Color32::from_gray(220),
                 text_weak: Color32::from_gray(150),
                 hyperlink: Color32::from_rgb(100, 149, 237),
-                success: Color32::from_rgb(90, 198, 90),
                 warning: Color32::from_rgb(255, 200, 100),
                 error: Color32::from_rgb(255, 100, 100),
             },
@@ -184,35 +176,6 @@ impl FluxTheme {
         style
     }
 
-    /// Create a primary button with theme styling
-    pub fn primary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
-        egui::Button::new(text)
-            .fill(self.colors.primary)
-            .rounding(Rounding::same(self.rounding))
-    }
-
-    /// Create a secondary button with theme styling
-    pub fn secondary_button(&self, text: impl Into<egui::WidgetText>) -> egui::Button<'_> {
-        egui::Button::new(text)
-            .fill(self.colors.secondary)
-            .rounding(Rounding::same(self.rounding))
-    }
-
-    /// Style a button widget (modifies UI visuals temporarily)
-    pub fn style_button(&self, ui: &mut egui::Ui, is_primary: bool) {
-        let button_color = if is_primary {
-            self.colors.primary
-        } else {
-            self.colors.secondary
-        };
-
-        ui.visuals_mut().widgets.inactive.bg_fill = button_color;
-        ui.visuals_mut().widgets.inactive.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-        ui.visuals_mut().widgets.hovered.bg_fill = button_color.linear_multiply(1.2);
-        ui.visuals_mut().widgets.hovered.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-        ui.visuals_mut().widgets.active.bg_fill = button_color.linear_multiply(0.8);
-        ui.visuals_mut().widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-    }
 }
 
 impl Default for FluxTheme {

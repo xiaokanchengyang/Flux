@@ -491,7 +491,11 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 pack_file(
                     &mut builder,
                     input,
-                    Path::new(input.file_name().unwrap()),
+                    Path::new(
+                        input
+                            .file_name()
+                            .ok_or_else(|| Error::InvalidPath("Path has no file name".to_string()))?,
+                    ),
                     follow_symlinks,
                 )?;
             } else if input.is_dir() {
@@ -516,7 +520,11 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 pack_file(
                     &mut builder,
                     input,
-                    Path::new(input.file_name().unwrap()),
+                    Path::new(
+                        input
+                            .file_name()
+                            .ok_or_else(|| Error::InvalidPath("Path has no file name".to_string()))?,
+                    ),
                     follow_symlinks,
                 )?;
             } else if input.is_dir() {
@@ -541,7 +549,11 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 pack_file(
                     &mut builder,
                     input,
-                    Path::new(input.file_name().unwrap()),
+                    Path::new(
+                        input
+                            .file_name()
+                            .ok_or_else(|| Error::InvalidPath("Path has no file name".to_string()))?,
+                    ),
                     follow_symlinks,
                 )?;
             } else if input.is_dir() {
@@ -566,7 +578,11 @@ pub fn pack_tar_compressed_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
                 pack_file(
                     &mut builder,
                     input,
-                    Path::new(input.file_name().unwrap()),
+                    Path::new(
+                        input
+                            .file_name()
+                            .ok_or_else(|| Error::InvalidPath("Path has no file name".to_string()))?,
+                    ),
                     follow_symlinks,
                 )?;
             } else if input.is_dir() {

@@ -44,7 +44,10 @@ pub fn pack_zip_with_options<P: AsRef<Path>, Q: AsRef<Path>>(
 
     if input.is_file() {
         // Pack single file
-        let file_name = input.file_name().unwrap().to_string_lossy();
+        let file_name = input
+            .file_name()
+            .ok_or_else(|| Error::InvalidPath("Path has no file name".to_string()))?
+            .to_string_lossy();
         pack_file_to_zip(&mut zip, input, &file_name, options)?;
     } else if input.is_dir() {
         // Pack directory recursively

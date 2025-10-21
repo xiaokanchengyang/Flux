@@ -150,24 +150,6 @@ impl BrowserState {
         }
     }
 
-    /// Toggle selection of an item
-    pub fn toggle_selection(&mut self, path: PathBuf) {
-        if self.selected.contains(&path) {
-            self.selected.remove(&path);
-        } else {
-            self.selected.insert(path);
-        }
-    }
-
-    /// Select all items under a node
-    pub fn select_node_recursive(&mut self, node: &TreeNode) {
-        let mut paths = Vec::new();
-        node.get_all_entry_paths(&mut paths);
-
-        for path in paths {
-            self.selected.insert(path);
-        }
-    }
 
     /// Clear all selections
     pub fn clear_selection(&mut self) {
@@ -197,10 +179,6 @@ impl BrowserState {
 /// Actions that can be triggered from the browser view
 #[derive(Debug, Clone)]
 pub enum BrowserAction {
-    /// Extract selected items to a directory
-    ExtractSelected(PathBuf),
-    /// Extract all items to a directory
-    ExtractAll(PathBuf),
     /// Close the browser and return to main view
     Close,
     /// Open file dialog to choose extraction destination

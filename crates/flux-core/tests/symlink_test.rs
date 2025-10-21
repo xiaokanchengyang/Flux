@@ -89,6 +89,8 @@ mod symlink_tests {
         // Create broken symlink (target doesn't exist)
         fs::create_dir_all(&source_dir).unwrap();
         unix_fs::symlink("nonexistent.txt", source_dir.join("broken_link.txt")).unwrap();
+        // Add a regular file to ensure directory is not empty
+        fs::write(source_dir.join("dummy.txt"), "dummy content").unwrap();
 
         // Pack with follow_symlinks=false
         let pack_options = PackOptions {

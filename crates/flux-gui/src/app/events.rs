@@ -89,6 +89,7 @@ impl FluxApp {
     }
 
     /// Reset to welcome view
+    #[allow(dead_code)]
     pub(super) fn reset_to_welcome(&mut self) {
         debug!("Resetting to welcome view");
         self.view = AppView::Welcome;

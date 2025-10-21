@@ -7,7 +7,7 @@ use egui::Ui;
 use egui_extras::{Column, TableBuilder};
 use egui_phosphor::regular;
 use flux_core::archive::extractor::ArchiveEntry;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Draw the table-based browser view with virtual scrolling
 pub fn draw_table_view(ui: &mut Ui, state: &mut BrowserState, theme: &FluxTheme) {
@@ -229,7 +229,7 @@ fn flatten_tree(
 }
 
 /// Get file type string from path
-fn get_file_type(path: &PathBuf) -> &'static str {
+fn get_file_type(path: &Path) -> &'static str {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

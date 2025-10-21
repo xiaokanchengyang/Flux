@@ -151,10 +151,11 @@ fn test_entropy_detection() {
 
 #[test]
 fn test_adjust_for_parallel() {
-    let mut strategy = CompressionStrategy::default();
-
-    // Test Zstd with different file sizes
-    strategy.algorithm = Algorithm::Zstd;
+    // Initialize with non-default algorithm to avoid field reassignment with default
+    let mut strategy = CompressionStrategy {
+        algorithm: Algorithm::Zstd,
+        ..Default::default()
+    };
 
     // Small file
     strategy.adjust_for_parallel(5 * 1024 * 1024); // 5MB

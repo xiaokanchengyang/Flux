@@ -1,4 +1,5 @@
 //! Tar archive operations
+#![allow(clippy::items_after_test_module)]
 
 use crate::archive::{ArchiveEntry, ExtractOptions};
 use crate::metadata::FileMetadata;

@@ -54,7 +54,7 @@ mod symlink_loop_tests {
         let archive = base.join("test.tar");
 
         // This should work fine without following symlinks
-        let result = pack_tar_with_options(&base, &archive, false);
+        let result = pack_tar_with_options(base, &archive, false);
         assert!(result.is_ok());
     }
 
@@ -74,7 +74,7 @@ mod symlink_loop_tests {
         let archive = base.join("test.tar");
 
         // Should handle broken symlinks gracefully without following them
-        let result = pack_tar_with_options(&base, &archive, false);
+        let result = pack_tar_with_options(base, &archive, false);
         assert!(result.is_ok());
     }
 }

@@ -3,7 +3,8 @@
 //! This module provides cloud storage integration, allowing flux to work with
 //! S3, Google Cloud Storage, and Azure Blob Storage.
 
-#![cfg(feature = "cloud")]
+// This module is compiled conditionally from main.rs via `#[cfg(feature = "cloud")]`.
+// Avoid repeating crate-level `cfg` to satisfy clippy's duplicated-attributes lint.
 
 use anyhow::{Context, Result};
 use flux_cloud::{CloudPath, CloudReader, CloudWriter};

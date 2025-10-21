@@ -41,6 +41,7 @@ fn test_unix_permissions_preserved() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -112,6 +113,7 @@ fn test_modification_time_preserved() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -168,6 +170,7 @@ fn test_symlink_preserved() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 
@@ -209,6 +212,7 @@ fn test_directory_structure_preserved() {
         skip: false,
         rename: false,
         strip_components: None,
+        hoist: false,
     };
     extract_with_options(&archive_path, &extract_dir, extract_opts).unwrap();
 

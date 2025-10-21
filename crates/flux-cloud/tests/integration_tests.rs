@@ -175,7 +175,7 @@ fn test_multipart_threshold() {
     // Test that large writes trigger multipart upload logic
     // This is a unit test that doesn't require credentials
 
-    let large_data = vec![0u8; 20 * 1024 * 1024]; // 20MB
+    let _large_data = vec![0u8; 20 * 1024 * 1024]; // 20MB
 
     // We can't test actual upload without credentials, but we can verify
     // the writer accepts large data

@@ -37,57 +37,51 @@ impl FluxApp {
         // Spawn background thread
         let task_handle = thread::spawn(move || {
             // Background thread main loop
-            loop {
-                match task_receiver.recv() {
-                    Ok(command) => match command {
-                        TaskCommand::Pack {
+            while let Ok(command) = task_receiver.recv() {
+                match command {
+                    TaskCommand::Pack {
+                        inputs,
+                        output,
+                        options,
+                        cancel_flag,
+                    } => {
+                        crate::handle_pack_task(
                             inputs,
                             output,
                             options,
                             cancel_flag,
-                        } => {
-                            crate::handle_pack_task(
-                                inputs,
-                                output,
-                                options,
-                                cancel_flag,
-                                &ui_sender,
-                            );
-                        }
-                        TaskCommand::Extract {
+                            &ui_sender,
+                        );
+                    }
+                    TaskCommand::Extract {
+                        archive,
+                        output_dir,
+                        hoist,
+                        cancel_flag,
+                    } => {
+                        crate::handle_extract_task(
                             archive,
                             output_dir,
                             hoist,
                             cancel_flag,
-                        } => {
-                            crate::handle_extract_task(
-                                archive,
-                                output_dir,
-                                hoist,
-                                cancel_flag,
-                                &ui_sender,
-                            );
-                        }
-                        TaskCommand::Sync {
+                            &ui_sender,
+                        );
+                    }
+                    TaskCommand::Sync {
+                        source_dir,
+                        target_archive,
+                        old_manifest,
+                        options,
+                        cancel_flag,
+                    } => {
+                        crate::handle_sync_task(
                             source_dir,
                             target_archive,
                             old_manifest,
                             options,
                             cancel_flag,
-                        } => {
-                            crate::handle_sync_task(
-                                source_dir,
-                                target_archive,
-                                old_manifest,
-                                options,
-                                cancel_flag,
-                                &ui_sender,
-                            );
-                        }
-                    },
-                    Err(_) => {
-                        // Channel closed, exit thread
-                        break;
+                            &ui_sender,
+                        );
                     }
                 }
             }

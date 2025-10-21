@@ -75,6 +75,7 @@ impl ProgressTracker {
     }
 
     /// Reset the tracker
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.start_time = Instant::now();
         self.last_update = Instant::now();

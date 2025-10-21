@@ -216,7 +216,7 @@ pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
             // If path doesn't exist, check parent directory
             path.parent()
                 .ok_or_else(|| Error::InvalidPath("No parent directory".to_string()))
-                .and_then(|p| fs::metadata(p).map_err(|e| Error::Io(e)))
+                .and_then(|p| fs::metadata(p).map_err(Error::Io))
         })?;
 
         // Get filesystem statistics

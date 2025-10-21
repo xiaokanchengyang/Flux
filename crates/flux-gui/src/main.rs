@@ -196,6 +196,7 @@ pub fn handle_pack_task(
 
 /// Pack multiple files into a tar archive
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
+#[allow(clippy::too_many_arguments)]
 fn pack_multiple_tar(
     inputs: &[PathBuf],
     output: &PathBuf,
@@ -239,6 +240,7 @@ fn pack_multiple_tar(
 
 /// Pack multiple files into a compressed tar archive
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker, options))]
+#[allow(clippy::too_many_arguments)]
 fn pack_multiple_tar_compressed(
     inputs: &[PathBuf],
     output: &PathBuf,
@@ -291,6 +293,7 @@ fn pack_multiple_tar_compressed(
 
 /// Pack multiple files into a ZIP archive
 #[instrument(skip(ui_sender, cancel_flag, progress_tracker))]
+#[allow(clippy::too_many_arguments)]
 fn pack_multiple_zip(
     inputs: &[PathBuf],
     output: &PathBuf,

@@ -32,6 +32,7 @@ glob = { workspace = true }
 indicatif = { workspace = true }
 sevenz-rust = { workspace = true }
 blake3 = { workspace = true }
+tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -3,7 +3,7 @@
 use anyhow::Result;
 use dialoguer::Select;
 use flux_core::archive::extractor::{ConflictAction, ConflictHandler, ExtractEntryOptions};
-use flux_core::archive::{create_extractor, ExtractOptions};
+use flux_core::archive::{create_secure_extractor, ExtractOptions};
 use flux_core::Error as FluxError;
 use indicatif::{ProgressBar, ProgressStyle};
 // use std::fs;
@@ -100,8 +100,8 @@ pub fn extract_interactive(
         return extract_with_options(archive, output_dir, options, show_progress, false);
     }
 
-    // Create the extractor
-    let extractor = create_extractor(archive)?;
+    // Create the extractor with security features enabled
+    let extractor = create_secure_extractor(archive)?;
 
     // Get all entries first to show progress
     let entries: Vec<_> = extractor.entries(archive)?.collect::<Result<Vec<_>, _>>()?;

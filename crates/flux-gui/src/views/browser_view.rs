@@ -115,6 +115,8 @@ pub struct BrowserState {
     pub dir_count: usize,
     /// Use table view instead of tree view
     pub use_table_view: bool,
+    /// Threshold for switching to optimized view (number of entries)
+    pub optimization_threshold: usize,
 }
 
 impl BrowserState {
@@ -147,6 +149,7 @@ impl BrowserState {
             file_count,
             dir_count,
             use_table_view: false,
+            optimization_threshold: 10000, // Switch to optimized view for archives with > 10k entries
         }
     }
 
@@ -324,7 +327,18 @@ pub fn draw_browser_view(
 
         // File tree or table view
         ui.allocate_ui(vec2(tree_width, ui.available_height()), |ui| {
-            if state.use_table_view {
+            // Automatically use optimized view for very large archives
+            let total_entries = state.file_count + state.dir_count;
+            
+            if state.use_table_view || total_entries > state.optimization_threshold {
+                if total_entries > state.optimization_threshold {
+                    // Show a notice about using optimized view
+                    ui.colored_label(
+                        theme.colors.warning,
+                        format!("⚡ Using optimized view for {} entries", total_entries),
+                    );
+                    ui.separator();
+                }
                 // Use table view for better performance with large archives
                 super::browser_table_view::draw_table_view(ui, state, theme);
             } else {

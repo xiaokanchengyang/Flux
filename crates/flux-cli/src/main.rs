@@ -6,6 +6,7 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod extract;
+mod modify;
 mod tui;
 
 #[cfg(feature = "cloud")]
@@ -172,6 +173,36 @@ enum Commands {
         /// Force full backup (ignore previous manifest)
         #[arg(long)]
         full: bool,
+    },
+
+    /// Add files to an existing archive
+    Add {
+        /// Archive to modify
+        archive: PathBuf,
+
+        /// Files to add
+        files: Vec<PathBuf>,
+
+        /// Compression level (0-9)
+        #[arg(short = 'l', long, default_value = "6")]
+        level: u32,
+
+        /// Don't preserve file permissions
+        #[arg(long)]
+        no_preserve_perms: bool,
+
+        /// Don't preserve timestamps
+        #[arg(long)]
+        no_preserve_time: bool,
+    },
+
+    /// Remove files from an archive
+    Remove {
+        /// Archive to modify
+        archive: PathBuf,
+
+        /// Patterns of files to remove (supports * wildcard)
+        patterns: Vec<String>,
     },
 }
 
@@ -674,6 +705,29 @@ fn run() -> Result<()> {
                     info!("No changes detected since last backup");
                 }
             }
+        }
+
+        Commands::Add {
+            archive,
+            files,
+            level,
+            no_preserve_perms,
+            no_preserve_time,
+        } => {
+            modify::execute_modify(modify::ModifyCommand::Add(modify::AddArgs {
+                archive,
+                files,
+                level,
+                no_preserve_perms,
+                no_preserve_time,
+            }))?;
+        }
+
+        Commands::Remove { archive, patterns } => {
+            modify::execute_modify(modify::ModifyCommand::Remove(modify::RemoveArgs {
+                archive,
+                patterns,
+            }))?;
         }
     }
 

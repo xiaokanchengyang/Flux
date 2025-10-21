@@ -304,7 +304,7 @@ impl FluxApp {
         use flux_core::archive;
 
         // Create an extractor for the archive
-        let extractor = archive::create_extractor(&archive_path)
+        let extractor = archive::create_secure_extractor(&archive_path)
             .map_err(|e| format!("Failed to open archive: {}", e))?;
 
         // Get all entries from the archive

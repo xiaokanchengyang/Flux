@@ -2,6 +2,7 @@
 
 pub mod extractor;
 pub mod incremental;
+pub mod modifier;
 pub mod secure_extractor;
 pub mod sevenz;
 pub mod sevenz_extractor;

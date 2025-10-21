@@ -3,6 +3,7 @@
 pub mod browser_table_view;
 pub mod browser_view;
 pub mod extracting_view;
+pub mod optimized_browser_view;
 pub mod packing_view;
 pub mod packing_view_modern;
 pub mod sync_view;

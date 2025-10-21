@@ -286,6 +286,9 @@ impl FluxApp {
                                 _ => "Operation completed successfully!",
                             };
                             self.toasts.success(message);
+                            
+                            // Reset to welcome view after successful completion
+                            self.reset_to_welcome();
                         }
                         TaskResult::Error(err) => {
                             self.status_text = format!("Error: {}", err);
@@ -594,25 +597,6 @@ impl eframe::App for FluxApp {
                                     draw_browser_view(ctx, ui, browser_state, &self.theme)
                                 {
                                     match action {
-                                        BrowserAction::ExtractSelected(dest) => {
-                                            let selected_entries =
-                                                browser_state.get_selected_entries();
-                                            let archive_path = browser_state.archive_path.clone();
-                                            self.extract_selected_entries(
-                                                selected_entries,
-                                                archive_path,
-                                                dest,
-                                            );
-                                        }
-                                        BrowserAction::ExtractAll(dest) => {
-                                            // Switch to extracting view with the archive
-                                            self.view = AppView::Extracting;
-                                            self.input_files =
-                                                vec![browser_state.archive_path.clone()];
-                                            self.output_path = Some(dest);
-                                            self.browser_state = None;
-                                            self.start_task();
-                                        }
                                         BrowserAction::Close => {
                                             // Return to welcome view
                                             self.view = AppView::Welcome;

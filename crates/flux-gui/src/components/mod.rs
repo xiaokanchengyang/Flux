@@ -184,7 +184,6 @@ pub struct DropZone {
     id: Id,
     text: String,
     subtext: String,
-    accepts_multiple: bool,
 }
 
 impl DropZone {
@@ -193,7 +192,6 @@ impl DropZone {
             id: id.into(),
             text: "Drop files here".to_string(),
             subtext: "or click to browse".to_string(),
-            accepts_multiple: true,
         }
     }
 
@@ -207,10 +205,6 @@ impl DropZone {
         self
     }
 
-    pub fn single_file(mut self) -> Self {
-        self.accepts_multiple = false;
-        self
-    }
 }
 
 impl Widget for DropZone {
@@ -328,10 +322,6 @@ impl FluxProgress {
         self
     }
 
-    pub fn show_percentage(mut self, show: bool) -> Self {
-        self.show_percentage = show;
-        self
-    }
 }
 
 impl Widget for FluxProgress {

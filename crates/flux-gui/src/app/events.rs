@@ -344,8 +344,8 @@ impl FluxApp {
     pub(super) fn extract_selected_entries(
         &mut self,
         entries: Vec<flux_core::archive::extractor::ArchiveEntry>,
-        archive_path: PathBuf,
-        output_dir: PathBuf,
+        _archive_path: PathBuf,
+        _output_dir: PathBuf,
     ) {
         self.toasts
             .info(format!("Extracting {} selected items...", entries.len()));

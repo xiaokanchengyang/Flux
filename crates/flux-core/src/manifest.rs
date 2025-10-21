@@ -270,7 +270,7 @@ impl ManifestDiff {
 fn compute_file_hash<P: AsRef<Path>>(path: P) -> Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Hasher::new();
-    let mut buffer = vec![0u8; 8192];
+    let mut buffer = vec![0u8; 65536]; // 64KB buffer for better I/O performance
 
     loop {
         let n = file.read(&mut buffer)?;

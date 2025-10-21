@@ -233,7 +233,7 @@ impl Default for Config {
             performance: PerformanceConfig {
                 threads: 0,      // Auto-detect
                 memory_limit: 0, // Unlimited
-                buffer_size: 64, // 64KB
+                buffer_size: 256, // 256KB - optimized for better I/O performance
             },
             strategy: StrategyConfig::default(),
             rules: vec![

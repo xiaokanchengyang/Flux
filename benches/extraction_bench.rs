@@ -3,8 +3,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use flux_core::archive::{extract, pack_with_strategy, PackOptions};
 use flux_core::strategy::Algorithm;
-use rand::{Rng, SeedableRng};
-use std::fs::{self, File};
+use rand::SeedableRng;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use tempfile::TempDir;
@@ -18,7 +18,7 @@ fn create_test_archive(
     level: u32,
 ) {
     let temp_dir = TempDir::new().unwrap();
-    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let _rng = rand::rngs::StdRng::seed_from_u64(42);
 
     // Generate test files
     for i in 0..file_count {

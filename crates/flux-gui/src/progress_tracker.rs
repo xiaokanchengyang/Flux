@@ -74,13 +74,6 @@ impl ProgressTracker {
         (avg_speed, eta)
     }
 
-    /// Reset the tracker
-    pub fn reset(&mut self) {
-        self.start_time = Instant::now();
-        self.last_update = Instant::now();
-        self.speed_history.clear();
-        self.last_bytes = 0;
-    }
 }
 
 /// Format bytes per second as human-readable string

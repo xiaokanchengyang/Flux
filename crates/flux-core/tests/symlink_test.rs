@@ -30,7 +30,7 @@ mod symlink_tests {
         extract_with_options(&archive_path, &extract_dir, ExtractOptions::default()).unwrap();
 
         // Verify: link should be a regular file with target's content
-        let link_path = extract_dir.join("link.txt");
+        let link_path = extract_dir.join("source/link.txt");
         assert!(link_path.exists());
         assert!(!link_path
             .symlink_metadata()
@@ -63,7 +63,7 @@ mod symlink_tests {
         extract_with_options(&archive_path, &extract_dir, ExtractOptions::default()).unwrap();
 
         // Verify: link should still be a symlink
-        let link_path = extract_dir.join("link.txt");
+        let link_path = extract_dir.join("source/link.txt");
         assert!(link_path.exists());
         assert!(link_path
             .symlink_metadata()
@@ -89,6 +89,8 @@ mod symlink_tests {
         // Create broken symlink (target doesn't exist)
         fs::create_dir_all(&source_dir).unwrap();
         unix_fs::symlink("nonexistent.txt", source_dir.join("broken_link.txt")).unwrap();
+        // Add a regular file so the directory isn't empty
+        fs::write(source_dir.join("regular.txt"), "Regular file").unwrap();
 
         // Pack with follow_symlinks=false
         let pack_options = PackOptions {
@@ -101,7 +103,7 @@ mod symlink_tests {
         extract_with_options(&archive_path, &extract_dir, ExtractOptions::default()).unwrap();
 
         // Verify: broken link should be preserved
-        let link_path = extract_dir.join("broken_link.txt");
+        let link_path = extract_dir.join("source/broken_link.txt");
         assert!(link_path.symlink_metadata().is_ok()); // Link exists
         assert!(link_path
             .symlink_metadata()
@@ -138,7 +140,7 @@ mod symlink_tests {
         extract_with_options(&archive_path, &extract_dir, ExtractOptions::default()).unwrap();
 
         // Verify
-        let link_dir = extract_dir.join("link_dir");
+        let link_dir = extract_dir.join("source/link_dir");
         assert!(link_dir
             .symlink_metadata()
             .unwrap()
@@ -178,7 +180,7 @@ mod symlink_tests {
         extract_with_options(&archive_path, &extract_dir, ExtractOptions::default()).unwrap();
 
         // The absolute symlink should be preserved as-is
-        let link_path = extract_dir.join("abs_link.txt");
+        let link_path = extract_dir.join("source/abs_link.txt");
         assert!(link_path
             .symlink_metadata()
             .unwrap()

@@ -374,7 +374,16 @@ impl eframe::App for FluxApp {
                         files.push(path.clone());
                     }
                 }
-                self.analyze_dropped_files(files);
+                
+                // Check if we're in browser view - if so, add files to archive
+                if matches!(self.view, AppView::Browsing) {
+                    if let Some(browser_state) = &self.browser_state {
+                        let archive_path = browser_state.archive_path.clone();
+                        self.add_files_to_archive(archive_path, files);
+                    }
+                } else {
+                    self.analyze_dropped_files(files);
+                }
             }
         });
 
@@ -645,6 +654,29 @@ impl eframe::App for FluxApp {
                                                     );
                                                 }
                                             }
+                                        }
+                                        BrowserAction::ChooseFilesToAdd => {
+                                            if let Some(files) = rfd::FileDialog::new()
+                                                .pick_files()
+                                            {
+                                                // Add files to the archive
+                                                let archive_path = browser_state.archive_path.clone();
+                                                self.add_files_to_archive(archive_path, files);
+                                            }
+                                        }
+                                        BrowserAction::RemoveSelected => {
+                                            if !browser_state.selected.is_empty() {
+                                                let archive_path = browser_state.archive_path.clone();
+                                                let patterns: Vec<String> = browser_state.selected
+                                                    .iter()
+                                                    .map(|p| p.to_string_lossy().to_string())
+                                                    .collect();
+                                                self.remove_files_from_archive(archive_path, patterns);
+                                            }
+                                        }
+                                        BrowserAction::AddFiles(files) => {
+                                            let archive_path = browser_state.archive_path.clone();
+                                            self.add_files_to_archive(archive_path, files);
                                         }
                                     }
                                 }

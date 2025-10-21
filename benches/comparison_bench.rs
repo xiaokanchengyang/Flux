@@ -2,8 +2,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use flux_core::archive::{pack_with_strategy, PackOptions};
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 

@@ -142,7 +142,7 @@ pub mod tar_modifier {
             info!("Adding {} files to archive: {:?}", files.len(), archive);
             
             // Create a temporary file for the new archive
-            let temp_file = NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
+            let temp_file = tempfile::NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
             let temp_path = temp_file.path().to_path_buf();
             
             // Open the original archive for reading
@@ -160,7 +160,7 @@ pub mod tar_modifier {
                 let path = entry.path()?.to_path_buf();
                 existing_paths.insert(path.clone());
                 
-                let mut header = entry.header().clone();
+                let header = entry.header().clone();
                 builder.append(&header, &mut entry)?;
             }
             
@@ -229,7 +229,7 @@ pub mod tar_modifier {
             info!("Removing files matching patterns from archive: {:?}", archive);
             
             // Create a temporary file for the new archive
-            let temp_file = NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
+            let temp_file = tempfile::NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
             let temp_path = temp_file.path().to_path_buf();
             
             // Open the original archive for reading
@@ -310,7 +310,7 @@ pub mod tar_modifier {
             }
             
             // Create a temporary file for the new archive
-            let temp_file = NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
+            let temp_file = tempfile::NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
             let temp_path = temp_file.path().to_path_buf();
             
             // Open the original archive for reading
@@ -386,7 +386,6 @@ pub mod tar_modifier {
 pub mod zip_modifier {
     use super::*;
     use std::fs::{self, File};
-    use std::io::Write;
     use zip::{ZipArchive, ZipWriter, write::FileOptions};
     
     pub struct ZipModifier;
@@ -402,7 +401,7 @@ pub mod zip_modifier {
             info!("Adding {} files to ZIP archive: {:?}", files.len(), archive);
             
             // Create a temporary file
-            let temp_file = NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
+            let temp_file = tempfile::NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
             let temp_path = temp_file.path().to_path_buf();
             
             // Open original archive
@@ -420,7 +419,7 @@ pub mod zip_modifier {
                 let name = entry.name().to_string();
                 existing_names.insert(name.clone());
                 
-                let options = FileOptions::default()
+                let options: FileOptions<()> = FileOptions::default()
                     .compression_method(entry.compression());
                 
                 zip_writer.start_file(&name, options)?;
@@ -450,9 +449,8 @@ pub mod zip_modifier {
                 
                 if file_path.is_file() {
                     let mut file = File::open(file_path)?;
-                    let metadata = file.metadata()?;
                     
-                    let mut file_options = FileOptions::default();
+                    let mut file_options: FileOptions<()> = FileOptions::default();
                     if options.compression_level > 0 {
                         file_options = file_options.compression_method(zip::CompressionMethod::Deflated);
                     }
@@ -464,7 +462,6 @@ pub mod zip_modifier {
             }
             
             zip_writer.finish()?;
-            drop(zip_writer);
             
             // Replace original
             fs::rename(temp_path, archive)?;
@@ -476,7 +473,7 @@ pub mod zip_modifier {
             info!("Removing files matching patterns from ZIP archive: {:?}", archive);
             
             // Create a temporary file
-            let temp_file = NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
+            let temp_file = tempfile::NamedTempFile::new_in(archive.parent().unwrap_or(Path::new(".")))?;
             let temp_path = temp_file.path().to_path_buf();
             
             // Open original archive
@@ -511,7 +508,7 @@ pub mod zip_modifier {
                     info!("Removing: {}", name);
                     removed_count += 1;
                 } else {
-                    let options = FileOptions::default()
+                    let options: FileOptions<()> = FileOptions::default()
                         .compression_method(entry.compression());
                     
                     zip_writer.start_file(name, options)?;
@@ -520,7 +517,6 @@ pub mod zip_modifier {
             }
             
             zip_writer.finish()?;
-            drop(zip_writer);
             
             if removed_count == 0 {
                 warn!("No files matched the removal patterns");

@@ -208,6 +208,12 @@ pub enum BrowserAction {
     Close,
     /// Open file dialog to choose extraction destination
     ChooseDestination,
+    /// Add files to the archive
+    AddFiles(Vec<PathBuf>),
+    /// Remove selected files from the archive
+    RemoveSelected,
+    /// Open file dialog to choose files to add
+    ChooseFilesToAdd,
 }
 
 /// Draw the archive browser view
@@ -278,6 +284,24 @@ pub fn draw_browser_view(
                     if extract_selected_btn.ui(ui).clicked() {
                         action = Some(BrowserAction::ChooseDestination);
                     }
+                    
+                    // Remove selected files button
+                    let remove_btn = FluxButton::new(format!("Remove {} Selected", selected_count))
+                        .icon(regular::TRASH);
+                    
+                    if remove_btn.ui(ui).clicked() {
+                        action = Some(BrowserAction::RemoveSelected);
+                    }
+                }
+                
+                ui.separator();
+                
+                // Add files button
+                let add_files_btn = FluxButton::new("Add Files")
+                    .icon(regular::PLUS);
+                
+                if add_files_btn.ui(ui).clicked() {
+                    action = Some(BrowserAction::ChooseFilesToAdd);
                 }
             });
         });
@@ -319,6 +343,14 @@ pub fn draw_browser_view(
     });
 
     ui.separator();
+    
+    // Show drag and drop hint
+    if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+        ui.colored_label(
+            theme.colors.primary,
+            "📁 Drop files here to add them to the archive",
+        );
+    }
 
     // Main content area with tree and info panel
     ui.horizontal(|ui| {
@@ -489,6 +521,16 @@ fn draw_tree_node(
 
         if name_response.double_clicked() && has_children {
             node.is_expanded = !node.is_expanded;
+        }
+        
+        // Context menu for files
+        if !has_children {
+            name_response.context_menu(|ui| {
+                if ui.button("🗑 Remove from archive").clicked() {
+                    selection_changes.push((node.path.clone(), true));
+                    ui.close_menu();
+                }
+            });
         }
 
         // Size for files

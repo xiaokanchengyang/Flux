@@ -1,5 +1,6 @@
 //! Flux GUI Application module
 
+mod archive_modify;
 mod events;
 mod state;
 mod ui;

@@ -151,6 +151,7 @@ impl BrowserState {
     }
 
     /// Toggle selection of an item
+    #[allow(dead_code)]
     pub fn toggle_selection(&mut self, path: PathBuf) {
         if self.selected.contains(&path) {
             self.selected.remove(&path);
@@ -160,6 +161,7 @@ impl BrowserState {
     }
 
     /// Select all items under a node
+    #[allow(dead_code)]
     pub fn select_node_recursive(&mut self, node: &TreeNode) {
         let mut paths = Vec::new();
         node.get_all_entry_paths(&mut paths);
@@ -198,8 +200,10 @@ impl BrowserState {
 #[derive(Debug, Clone)]
 pub enum BrowserAction {
     /// Extract selected items to a directory
+    #[allow(dead_code)]
     ExtractSelected(PathBuf),
     /// Extract all items to a directory
+    #[allow(dead_code)]
     ExtractAll(PathBuf),
     /// Close the browser and return to main view
     Close,
@@ -336,14 +340,17 @@ pub fn draw_browser_view(
                     let search_filter = &state.search_filter;
                     let show_hidden = state.show_hidden;
 
-                    let (new_highlighted, selection_changes) = draw_tree_node(
-                        ui,
-                        &mut state.tree,
+                    let ctx = TreeDrawContext {
                         selected,
                         highlighted,
                         search_filter,
                         show_hidden,
                         theme,
+                    };
+                    let (new_highlighted, selection_changes) = draw_tree_node(
+                        ui,
+                        &mut state.tree,
+                        &ctx,
                         0,
                     );
 
@@ -374,36 +381,41 @@ pub fn draw_browser_view(
     action
 }
 
+/// Context for drawing tree nodes
+struct TreeDrawContext<'a> {
+    selected: &'a HashSet<PathBuf>,
+    highlighted: &'a Option<PathBuf>,
+    search_filter: &'a str,
+    show_hidden: bool,
+    theme: &'a FluxTheme,
+}
+
 /// Draw a tree node and its children
 fn draw_tree_node(
     ui: &mut Ui,
     node: &mut TreeNode,
-    selected: &HashSet<PathBuf>,
-    highlighted: &Option<PathBuf>,
-    search_filter: &str,
-    show_hidden: bool,
-    theme: &FluxTheme,
+    ctx: &TreeDrawContext,
     depth: usize,
 ) -> (Option<PathBuf>, Vec<(PathBuf, bool)>) {
     let mut new_highlighted = None;
     let mut selection_changes = Vec::new();
 
     // Skip if filtered
-    if !search_filter.is_empty()
+    if !ctx.search_filter.is_empty()
         && !node
             .name
             .to_lowercase()
-            .contains(&search_filter.to_lowercase())
+            .contains(&ctx.search_filter.to_lowercase())
         && !node
             .children
             .iter()
-            .any(|c| contains_filter(c, search_filter))
+            .any(|c| contains_filter(c, ctx.search_filter))
     {
         return (new_highlighted, selection_changes);
     }
 
     // Skip hidden files if needed
-    if !show_hidden && node.name.starts_with('.') {
+    if !ctx.show_hidden && node.name.starts_with('.') {
         return (new_highlighted, selection_changes);
     }
 
@@ -413,8 +425,8 @@ fn draw_tree_node(
         ui.add_space(indent);
 
         let has_children = !node.children.is_empty();
-        let is_selected = selected.contains(&node.path);
-        let is_highlighted = highlighted.as_ref() == Some(&node.path);
+        let is_selected = ctx.selected.contains(&node.path);
+        let is_highlighted = ctx.highlighted.as_ref() == Some(&node.path);
 
         // Expand/collapse button for directories
         if has_children {
@@ -428,7 +440,7 @@ fn draw_tree_node(
 
         // Selection checkbox
         let mut checkbox_selected =
-            is_selected || (has_children && node.has_selected_descendant(selected));
+            is_selected || (has_children && node.has_selected_descendant(ctx.selected));
         if ui.checkbox(&mut checkbox_selected, "").clicked() {
             if has_children {
                 // Select/deselect all children
@@ -456,16 +468,16 @@ fn draw_tree_node(
         ui.label(
             egui::RichText::new(icon)
                 .size(16.0)
-                .color(theme.colors.primary),
+                .color(ctx.theme.colors.primary),
         );
 
         // Name
         let name_response = ui.selectable_label(
             is_highlighted,
             egui::RichText::new(&node.name).color(if is_selected {
-                theme.colors.primary
+                ctx.theme.colors.primary
             } else {
-                theme.colors.text
+                ctx.theme.colors.text
             }),
         );
 
@@ -484,7 +496,7 @@ fn draw_tree_node(
                     ui.label(
                         egui::RichText::new(format_size(entry.size))
                             .size(12.0)
-                            .color(theme.colors.text_weak),
+                            .color(ctx.theme.colors.text_weak),
                     );
                 });
             }
@@ -497,11 +509,7 @@ fn draw_tree_node(
             let (child_highlighted, child_changes) = draw_tree_node(
                 ui,
                 child,
-                selected,
-                highlighted,
-                search_filter,
-                show_hidden,
-                theme,
+                ctx,
                 depth + 1,
             );
             if child_highlighted.is_some() {

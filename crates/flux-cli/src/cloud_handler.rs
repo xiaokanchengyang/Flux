@@ -3,8 +3,6 @@
 //! This module provides cloud storage integration, allowing flux to work with
 //! S3, Google Cloud Storage, and Azure Blob Storage.
 
-#![cfg(feature = "cloud")]
-
 use anyhow::{Context, Result};
 use flux_cloud::{CloudPath, CloudReader, CloudWriter};
 use std::io::{Read, Seek, Write};

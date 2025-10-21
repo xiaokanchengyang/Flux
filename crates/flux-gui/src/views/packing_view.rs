@@ -5,6 +5,7 @@ use eframe::egui;
 use std::path::PathBuf;
 
 /// Draw the packing view UI
+#[allow(dead_code)]
 pub fn draw_packing_view(
     _ctx: &egui::Context,
     ui: &mut egui::Ui,

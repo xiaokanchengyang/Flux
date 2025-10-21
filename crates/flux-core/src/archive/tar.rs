@@ -81,43 +81,83 @@ fn pack_file<W: Write>(
 
     // Check if it's a symlink
     #[cfg(unix)]
-    if file_metadata.file_type().is_symlink() && !follow_symlinks {
-        // Pack the symlink itself
-        let link_target = fs::read_link(path)?;
-        debug!("Adding symlink: {:?} -> {:?}", path, link_target);
+    if file_metadata.file_type().is_symlink() {
+        if !follow_symlinks {
+            // Pack the symlink itself
+            let link_target = fs::read_link(path)?;
+            debug!("Adding symlink: {:?} -> {:?}", path, link_target);
 
-        let metadata = FileMetadata::from_metadata(&file_metadata)?;
-        let mut header = tar::Header::new_ustar();
+            let metadata = FileMetadata::from_metadata(&file_metadata)?;
+            let mut header = tar::Header::new_ustar();
 
-        header.set_entry_type(tar::EntryType::Symlink);
-        header.set_path(archive_path)?;
-        header.set_link_name(&link_target)?;
-        header.set_size(0);
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_path(archive_path)?;
+            header.set_link_name(&link_target)?;
+            header.set_size(0);
 
-        // Set Unix-specific metadata
-        #[cfg(unix)]
-        {
-            if let Some(mode) = metadata.mode {
-                header.set_mode(mode);
+            // Set Unix-specific metadata
+            #[cfg(unix)]
+            {
+                if let Some(mode) = metadata.mode {
+                    header.set_mode(mode);
+                }
+                if let Some(uid) = metadata.uid {
+                    header.set_uid(uid as u64);
+                }
+                if let Some(gid) = metadata.gid {
+                    header.set_gid(gid as u64);
+                }
             }
-            if let Some(uid) = metadata.uid {
-                header.set_uid(uid as u64);
+
+            // Set timestamps
+            if let Some(mtime) = metadata.modified {
+                if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
+                    header.set_mtime(duration.as_secs());
+                }
             }
-            if let Some(gid) = metadata.gid {
-                header.set_gid(gid as u64);
+
+            header.set_cksum();
+            builder.append(&header, &mut std::io::empty())?;
+            return Ok(());
+        } else {
+            // When following symlinks, we need to pack the target file
+            // But we should check if the target exists first
+            match fs::metadata(path) {
+                Ok(_) => {
+                    // Continue to pack the target file below
+                    debug!("Following symlink: {:?}", path);
+                }
+                Err(e) => {
+                    warn!("Cannot follow symlink {:?}: {}", path, e);
+                    // Pack as a broken symlink
+                    let link_target = fs::read_link(path)?;
+                    let metadata = FileMetadata::from_metadata(&file_metadata)?;
+                    let mut header = tar::Header::new_ustar();
+
+                    header.set_entry_type(tar::EntryType::Symlink);
+                    header.set_path(archive_path)?;
+                    header.set_link_name(&link_target)?;
+                    header.set_size(0);
+
+                    #[cfg(unix)]
+                    {
+                        if let Some(mode) = metadata.mode {
+                            header.set_mode(mode);
+                        }
+                        if let Some(uid) = metadata.uid {
+                            header.set_uid(uid as u64);
+                        }
+                        if let Some(gid) = metadata.gid {
+                            header.set_gid(gid as u64);
+                        }
+                    }
+
+                    header.set_cksum();
+                    builder.append(&header, &mut std::io::empty())?;
+                    return Ok(());
+                }
             }
         }
-
-        // Set timestamps
-        if let Some(mtime) = metadata.modified {
-            if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                header.set_mtime(duration.as_secs());
-            }
-        }
-
-        header.set_cksum();
-        builder.append(&header, &mut std::io::empty())?;
-        return Ok(());
     }
 
     // Regular file handling
@@ -165,27 +205,24 @@ fn pack_directory_with_options<W: Write>(
 ) -> Result<()> {
     let base_path = dir.parent().unwrap_or(Path::new(""));
 
-    let walker = if follow_symlinks {
-        WalkDir::new(dir).follow_links(true).max_depth(100) // Prevent infinite recursion
-    } else {
-        WalkDir::new(dir).follow_links(false)
-    };
-
+    // Try to use WalkDir even when following symlinks, but handle errors properly
+    let walker = WalkDir::new(dir)
+        .follow_links(follow_symlinks)
+        .max_depth(1000); // Prevent excessive recursion
+        
     for entry in walker {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                // Handle WalkDir errors (e.g., symlink loops)
-                warn!("Error walking directory: {}", e);
-                // Check if it's a loop error
-                if let Some(path) = e.path() {
-                    if e.loop_ancestor().is_some() {
-                        return Err(Error::Archive(format!(
-                            "Symlink loop detected at {:?}",
-                            path
-                        )));
-                    }
+                // Check if it's a symlink loop error
+                if let Some(loop_ancestor) = e.loop_ancestor() {
+                    return Err(Error::Archive(format!(
+                        "Symlink loop detected: {:?} loops back to {:?}",
+                        e.path().unwrap_or(Path::new("")),
+                        loop_ancestor
+                    )));
                 }
+                warn!("Error walking directory: {}", e);
                 continue; // Skip this entry
             }
         };
@@ -203,7 +240,7 @@ fn pack_directory_with_options<W: Write>(
 
         let file_type = entry.file_type();
 
-        if file_type.is_file() || (file_type.is_symlink() && follow_symlinks) {
+        if file_type.is_file() {
             pack_file(builder, path, relative_path, follow_symlinks)?;
         } else if file_type.is_dir() {
             // Add directory entry
@@ -232,8 +269,8 @@ fn pack_directory_with_options<W: Write>(
             header.set_cksum();
 
             builder.append(&header, &mut std::io::empty())?;
-        } else if file_type.is_symlink() && !follow_symlinks {
-            // Handle symlinks when not following them
+        } else if file_type.is_symlink() {
+            // Handle symlinks - pack_file will handle following or not
             pack_file(builder, path, relative_path, follow_symlinks)?;
         } else {
             warn!("Skipping special file: {:?}", path);
@@ -242,6 +279,7 @@ fn pack_directory_with_options<W: Write>(
 
     Ok(())
 }
+
 
 /// Extract files from a tar archive
 pub fn extract_tar<P: AsRef<Path>, Q: AsRef<Path>>(archive_path: P, output_dir: Q) -> Result<()> {

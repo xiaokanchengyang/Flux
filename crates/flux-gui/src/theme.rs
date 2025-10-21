@@ -30,6 +30,7 @@ pub struct ColorScheme {
     /// Hyperlink color
     pub hyperlink: Color32,
     /// Success color
+    #[allow(dead_code)]
     pub success: Color32,
     /// Warning color
     pub warning: Color32,

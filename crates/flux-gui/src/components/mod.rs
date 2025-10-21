@@ -184,6 +184,7 @@ pub struct DropZone {
     id: Id,
     text: String,
     subtext: String,
+    #[allow(dead_code)]
     accepts_multiple: bool,
 }
 
@@ -207,6 +208,7 @@ impl DropZone {
         self
     }
 
+    #[allow(dead_code)]
     pub fn single_file(mut self) -> Self {
         self.accepts_multiple = false;
         self
@@ -328,6 +330,7 @@ impl FluxProgress {
         self
     }
 
+    #[allow(dead_code)]
     pub fn show_percentage(mut self, show: bool) -> Self {
         self.show_percentage = show;
         self

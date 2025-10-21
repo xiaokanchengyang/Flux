@@ -27,6 +27,17 @@ pub enum TaskCommand {
         /// Cancel flag
         cancel_flag: Arc<AtomicBool>,
     },
+    /// Extract selected entries from an archive
+    ExtractSelected {
+        /// Archive file to extract from
+        archive_path: PathBuf,
+        /// Directory to extract to
+        output_dir: PathBuf,
+        /// Paths of entries to extract
+        entry_paths: Vec<PathBuf>,
+        /// Cancel flag
+        cancel_flag: Arc<AtomicBool>,
+    },
     /// Sync/incremental backup
     Sync {
         /// Source directory

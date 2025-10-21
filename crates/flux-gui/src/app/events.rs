@@ -89,6 +89,7 @@ impl FluxApp {
     }
 
     /// Reset to welcome view
+    #[allow(dead_code)]
     pub(super) fn reset_to_welcome(&mut self) {
         debug!("Resetting to welcome view");
         self.view = AppView::Welcome;
@@ -351,6 +352,9 @@ impl FluxApp {
             .info(format!("Extracting {} selected items...", entries.len()));
 
         // Store the paths of selected entries
+        let entry_paths: Vec<PathBuf> = entries.iter().map(|e| e.path.clone()).collect();
+        
+        // Show which files will be extracted
         let entry_count = entries.len();
         let entry_names: Vec<String> = entries
             .iter()
@@ -360,19 +364,43 @@ impl FluxApp {
                 .to_string())
             .collect();
 
-        // For now, show a detailed message about what would be extracted
         let message = if entry_count <= 3 {
-            format!("Would extract: {}", entry_names.join(", "))
+            format!("Extracting: {}", entry_names.join(", "))
         } else {
-            format!("Would extract {} items including: {}, ...", 
+            format!("Extracting {} items including: {}, ...", 
                 entry_count, 
                 entry_names.iter().take(3).cloned().collect::<Vec<_>>().join(", "))
         };
         
         self.toasts.info(message);
-        self.toasts.warning("Partial extraction feature is coming soon!");
         
-        // TODO: Implement partial extraction in flux-core
-        // This requires extending the extractor API to support extracting specific entries
+        // Create the task to extract selected entries
+        let task = crate::task::TaskCommand::ExtractSelected {
+            archive_path,
+            output_dir: output_dir.clone(),
+            entry_paths,
+            cancel_flag: self.cancel_flag.clone(),
+        };
+        
+        // Start the extraction task
+        if let Err(e) = self.task_sender.send(task) {
+            self.toasts.error(format!("Failed to start extraction: {}", e));
+            return;
+        }
+        
+        // Update UI state
+        self.view = AppView::Progress(ProgressView {
+            operation: "Extracting selected files".to_string(),
+            archive_name: archive_path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        });
+        
+        self.active_task = Some(ActiveTask {
+            task_type: TaskType::Extract,
+            start_time: std::time::Instant::now(),
+            output_path: Some(output_dir),
+        });
     }
 }
